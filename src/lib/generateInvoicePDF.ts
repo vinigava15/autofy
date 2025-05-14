@@ -134,6 +134,30 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
     borderColor: '#E5E7EB', // Cinza claro para bordas
   };
   
+  // Determinar o texto e a cor do status com base no status do serviço
+  let statusText = 'SERVIÇO CONCLUÍDO';
+  let statusColor = colors.primary;
+  
+  if (service.status) {
+    switch (service.status) {
+      case 'orcamento':
+        statusText = 'ORÇAMENTO';
+        statusColor = '#3B82F6'; // Azul
+        break;
+      case 'pago':
+        statusText = 'SERVIÇO PAGO';
+        statusColor = '#10B981'; // Verde
+        break;
+      case 'nao_pago':
+        statusText = 'AGUARDANDO PAGAMENTO';
+        statusColor = '#EF4444'; // Vermelho
+        break;
+      default:
+        // Manter valores padrão
+        break;
+    }
+  }
+  
   return {
     pageSize: 'A4',
     pageMargins: [40, 80, 40, 40] as [number, number, number, number],
@@ -149,7 +173,7 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
           color: colors.primary
         },
         {
-          text: 'NOTA FISCAL',
+          text: service.status === 'orcamento' ? 'ORÇAMENTO' : 'NOTA FISCAL',
           alignment: 'right',
           fontSize: 14,
           color: colors.primary
@@ -184,7 +208,7 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
             width: '60%',
             stack: [
               {
-                text: 'Nota Fiscal de Serviço',
+                text: service.status === 'orcamento' ? 'Orçamento de Serviço' : 'Nota Fiscal de Serviço',
                 fontSize: 16,
                 color: colors.primary,
                 bold: true,
@@ -215,11 +239,11 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
       
       // Status do serviço
       {
-        text: 'SERVIÇO CONCLUÍDO',
+        text: statusText,
         alignment: 'center',
         fontSize: 12,
         bold: true,
-        color: colors.primary,
+        color: statusColor,
         margin: [0, 10, 0, 20] as [number, number, number, number]
       },
       
@@ -367,25 +391,67 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
                     margin: [0, 5, 0, 5] as [number, number, number, number]
                   }
                 ],
-                [
-                  { 
-                    text: '1', 
-                    alignment: 'center',
-                    fontSize: 9,
-                    margin: [0, 5, 0, 5] as [number, number, number, number]
-                  },
-                  { 
-                    text: 'Serviço de Funilaria e Pintura', 
-                    fontSize: 9,
-                    margin: [0, 5, 0, 5] as [number, number, number, number]
-                  },
-                  { 
-                    text: formatCurrency(service.service_value), 
-                    alignment: 'right',
-                    fontSize: 9,
-                    margin: [0, 5, 0, 5] as [number, number, number, number]
-                  }
-                ]
+                ...(service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0 && service.catalog_services
+                  ? service.catalog_services.map((catalogService, index) => [
+                      { 
+                        text: (index + 1).toString(), 
+                        alignment: 'center',
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      },
+                      { 
+                        text: catalogService.name, 
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      },
+                      { 
+                        text: formatCurrency(catalogService.value), 
+                        alignment: 'right',
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      }
+                    ])
+                  : service.services && Array.isArray(service.services)
+                  ? service.services.map((catalogService, index) => [
+                      { 
+                        text: (index + 1).toString(), 
+                        alignment: 'center',
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      },
+                      { 
+                        text: catalogService.name, 
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      },
+                      { 
+                        text: formatCurrency(catalogService.value), 
+                        alignment: 'right',
+                        fontSize: 9,
+                        margin: [0, 5, 0, 5] as [number, number, number, number]
+                      }
+                    ])
+                  : [
+                      [ 
+                        { 
+                          text: '1', 
+                          alignment: 'center',
+                          fontSize: 9,
+                          margin: [0, 5, 0, 5] as [number, number, number, number]
+                        },
+                        { 
+                          text: service.service?.name || 'Serviço', 
+                          fontSize: 9,
+                          margin: [0, 5, 0, 5] as [number, number, number, number]
+                        },
+                        { 
+                          text: formatCurrency(service.service_value), 
+                          alignment: 'right',
+                          fontSize: 9,
+                          margin: [0, 5, 0, 5] as [number, number, number, number]
+                        }
+                      ]
+                    ])
               ]
             },
             layout: {
@@ -443,7 +509,21 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
             margin: [0, 0, 0, 5] as [number, number, number, number]
           },
           {
-            ul: service.repaired_parts && Array.isArray(service.repaired_parts) && service.repaired_parts.length > 0
+            ul: service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0 && service.catalog_services
+              ? service.catalog_services.map(catalogService => ({
+                  text: catalogService.name,
+                  fontSize: 9,
+                  color: colors.text,
+                  margin: [0, 2, 0, 2] as [number, number, number, number]
+                }))
+              : service.services && Array.isArray(service.services)
+              ? service.services.map(catalogService => ({
+                  text: catalogService.name,
+                  fontSize: 9,
+                  color: colors.text,
+                  margin: [0, 2, 0, 2] as [number, number, number, number]
+                }))
+              : service.repaired_parts && Array.isArray(service.repaired_parts) && service.repaired_parts.length > 0
               ? service.repaired_parts.map(part => ({
                   text: part,
                   fontSize: 9,
@@ -589,6 +669,39 @@ export const generateInvoicePDF = (notaFiscal: NotaFiscal): void => {
     { text: formatCurrency(servico.valor), alignment: 'right' }
   ]);
 
+  // Definir cores e textos com base no status
+  let statusColor = '#2563EB'; // Azul padrão
+  let statusText = 'NOTA FISCAL DE SERVIÇO';
+  let statusBadgeText = '';
+  let statusBadgeColor = '';
+  
+  // Definir texto e cor do status
+  if (notaFiscal.status) {
+    switch (notaFiscal.status) {
+      case 'orcamento':
+        statusText = 'ORÇAMENTO DE SERVIÇO';
+        statusColor = '#3B82F6'; // Azul
+        statusBadgeText = 'ORÇAMENTO';
+        statusBadgeColor = '#EFF6FF'; // Fundo azul claro
+        break;
+      case 'pago':
+        statusText = 'NOTA FISCAL DE SERVIÇO';
+        statusColor = '#10B981'; // Verde
+        statusBadgeText = 'PAGO';
+        statusBadgeColor = '#ECFDF5'; // Fundo verde claro
+        break;
+      case 'nao_pago':
+        statusText = 'NOTA FISCAL DE SERVIÇO';
+        statusColor = '#EF4444'; // Vermelho
+        statusBadgeText = 'NÃO PAGO';
+        statusBadgeColor = '#FEF2F2'; // Fundo vermelho claro
+        break;
+      default:
+        // Manter valores padrão
+        break;
+    }
+  }
+
   // Definição do documento
   const docDefinition: TDocumentDefinitions = {
     pageSize: 'A4',
@@ -615,12 +728,51 @@ export const generateInvoicePDF = (notaFiscal: NotaFiscal): void => {
     
     content: [
       {
-        text: 'NOTA FISCAL DE SERVIÇO',
+        text: statusText,
         alignment: 'center',
         fontSize: 14,
         bold: true,
-        margin: [0, 20, 0, 30]
+        margin: [0, 20, 0, 10],
+        color: statusColor
       },
+      
+      // Adicionar badge de status quando aplicável
+      ...(statusBadgeText ? [
+        {
+          columns: [
+            { width: '*', text: '' },
+            {
+              width: 'auto',
+              table: {
+                headerRows: 0,
+                widths: ['auto'],
+                body: [
+                  [
+                    {
+                      text: statusBadgeText,
+                      alignment: 'center',
+                      bold: true,
+                      fontSize: 10,
+                      color: statusColor,
+                      fillColor: statusBadgeColor,
+                      margin: [15, 5, 15, 5]
+                    }
+                  ]
+                ]
+              },
+              margin: [0, 0, 0, 15],
+              layout: {
+                hLineWidth: function() { return 0; },
+                vLineWidth: function() { return 0; },
+                hLineColor: function() { return statusColor; },
+                vLineColor: function() { return statusColor; },
+              }
+            },
+            { width: '*', text: '' }
+          ]
+        }
+      ] : []),
+      
       {
         columns: [
           {
@@ -816,37 +968,57 @@ export const serviceToNotaFiscal = (service: any): NotaFiscal => {
   // Construir os serviços a partir dos dados disponíveis
   let servicos: ServicoNF[] = [];
   
-  // Verificar se existe o array de serviços selecionados
+  console.log('Convertendo serviço para nota fiscal:', {
+    selected_services: service.selected_services,
+    catalog_services: service.catalog_services,
+    services: service.services,
+    service_id: service.service_id,
+    service: service.service
+  });
+  
+  // Verificar se existe o array de serviços selecionados E catalog_services
   if (service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
-    // Verifica se o service tem o objeto catalog_services (resultado de JOIN)
-    if (service.catalog_services) {
-      // Caso onde temos os serviços do catálogo já inclusos no resultado da query
+    // Verifica se o service tem o objeto catalog_services (resultado de JOIN ou carregado separadamente)
+    if (service.catalog_services && Array.isArray(service.catalog_services) && service.catalog_services.length > 0) {
+      // Caso onde temos os serviços do catálogo já inclusos no resultado da query ou carregado separadamente
+      console.log('Usando catalog_services para a nota fiscal:', service.catalog_services);
       servicos = service.catalog_services.map((catalogService: any) => ({
         descricaoServico: catalogService.name,
         valor: catalogService.value
       }));
-    } else if (service.services) {
+    } else if (service.services && Array.isArray(service.services) && service.services.length > 0) {
       // Caso alternativo onde temos os serviços em um array chamado services
+      console.log('Usando services para a nota fiscal:', service.services);
       servicos = service.services.map((catalogService: any) => ({
         descricaoServico: catalogService.name,
         valor: catalogService.value
       }));
+    } else if (service.service?.name) {
+      // Fallback para o serviço único
+      console.log('Usando service único para a nota fiscal:', service.service);
+      servicos.push({
+        descricaoServico: service.service.name,
+        valor: service.service_value
+      });
     } else {
       // Fallback: adicionar apenas um serviço com o valor total
+      console.log('Fallback: Nenhum detalhe de serviço disponível, usando valor total');
       servicos.push({
-        descricaoServico: service.service?.name || "Serviço selecionado",
+        descricaoServico: "Serviço selecionado",
         valor: service.service_value
       });
     }
   } else if (service.service?.name) {
     // Caso onde temos apenas um serviço do catálogo (formato antigo)
+    console.log('Usando serviço único do formato antigo:', service.service);
     servicos.push({
       descricaoServico: service.service.name,
       valor: service.service_value
     });
-  } else if (service.repaired_parts && Array.isArray(service.repaired_parts)) {
+  } else if (service.repaired_parts && Array.isArray(service.repaired_parts) && service.repaired_parts.length > 0) {
     // Formato ainda mais antigo: cada peça reparada é um serviço
     // Distribuir o valor total entre as peças reparadas
+    console.log('Usando peças reparadas como serviços:', service.repaired_parts);
     const valorPorPeca = service.service_value / Math.max(service.repaired_parts.length, 1);
     
     servicos = service.repaired_parts.map((parte: string) => ({
@@ -855,11 +1027,14 @@ export const serviceToNotaFiscal = (service: any): NotaFiscal => {
     }));
   } else {
     // Fallback para caso nenhum serviço esteja definido
+    console.log('Nenhum serviço encontrado, usando fallback');
     servicos.push({
       descricaoServico: "Serviço não especificado",
       valor: service.service_value
     });
   }
+
+  console.log('Serviços finais para a nota fiscal:', servicos);
 
   return {
     cliente: {
@@ -875,7 +1050,8 @@ export const serviceToNotaFiscal = (service: any): NotaFiscal => {
     valorTotal: service.service_value,
     codigoAutenticacao: service.auth_code || generateAuthCode(),
     numeroPedido: service.id?.substring(0, 8).toUpperCase(),
-    observacoes: service.observacoes
+    observacoes: service.observacoes,
+    status: service.status || 'pago'
   };
 };
 
@@ -976,13 +1152,37 @@ const generateAuthCode = (): string => {
  * Cria uma definição de documento simplificada sem imagens
  */
 function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
+  // Determinar o título com base no status
+  let documentTitle = 'NOTA FISCAL DE SERVIÇO';
+  let statusText = '';
+  let statusColor = '#1F2937'; // Cor padrão cinza escuro
+  
+  if (service.status) {
+    switch (service.status) {
+      case 'orcamento':
+        documentTitle = 'ORÇAMENTO DE SERVIÇO';
+        statusText = '** ORÇAMENTO **';
+        statusColor = '#3B82F6'; // Azul
+        break;
+      case 'pago':
+        statusText = '** SERVIÇO PAGO **';
+        statusColor = '#10B981'; // Verde
+        break;
+      case 'nao_pago':
+        statusText = '** AGUARDANDO PAGAMENTO **';
+        statusColor = '#EF4444'; // Vermelho
+        break;
+    }
+  }
+  
   return {
     pageSize: 'A4',
     pageMargins: [40, 60, 40, 60],
     
     content: [
       { text: 'AUTOFY', style: 'header' },
-      { text: 'NOTA FISCAL DE SERVIÇO', style: 'subheader' },
+      { text: documentTitle, style: 'subheader' },
+      statusText ? { text: statusText, style: 'status', color: statusColor, alignment: 'center', margin: [0, 5, 0, 15] } : {},
       { text: `Código de Autenticação: ${service.auth_code || 'N/A'}`, style: 'auth' },
       { text: `Data: ${service.service_date ? format(new Date(service.service_date), 'dd/MM/yyyy') : 'N/A'}`, margin: [0, 10, 0, 0] },
       { text: 'INFORMAÇÕES DO CLIENTE', style: 'sectionHeader', margin: [0, 15, 0, 5] },
@@ -997,14 +1197,30 @@ function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
           widths: ['*', 'auto'],
           body: [
             [{ text: 'Descrição', style: 'tableHeader' }, { text: 'Valor', style: 'tableHeader' }],
-            ['Serviço de Funilaria e Pintura', { text: `R$ ${service.service_value}`, alignment: 'right' }]
+            ...(service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0 && service.catalog_services
+              ? service.catalog_services.map(catalogService => [
+                  catalogService.name,
+                  { text: formatCurrency(catalogService.value), alignment: 'right' }
+                ])
+              : service.services && Array.isArray(service.services)
+              ? service.services.map(catalogService => [
+                  catalogService.name,
+                  { text: formatCurrency(catalogService.value), alignment: 'right' }
+                ])
+              : [[service.service?.name || 'Serviço', { text: formatCurrency(service.service_value), alignment: 'right' }]])
           ]
         }
       },
       
       { text: 'SERVIÇOS', style: 'sectionHeader', margin: [0, 15, 0, 5] },
       {
-        ul: service.repaired_parts
+        ul: service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0 && service.catalog_services
+          ? service.catalog_services.map(catalogService => catalogService.name)
+          : service.services && Array.isArray(service.services)
+          ? service.services.map(catalogService => catalogService.name)
+          : service.repaired_parts && Array.isArray(service.repaired_parts)
+          ? service.repaired_parts
+          : ['Nenhum serviço especificado']
       },
       
       { text: 'TERMOS E CONDIÇÕES', style: 'sectionHeader', margin: [0, 15, 0, 5] },
@@ -1046,6 +1262,11 @@ function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
       tableHeader: {
         bold: true,
         fillColor: '#f3f4f6'
+      },
+      status: {
+        fontSize: 12,
+        bold: true,
+        color: '#2563EB'
       }
     }
   };

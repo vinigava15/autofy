@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, X, DollarSign, Inbox, PiggyBank } from 'lucide-react';
+import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, X, DollarSign, Inbox, PiggyBank, Target } from 'lucide-react';
 import { ServiceForm } from './components/ServiceForm';
 import { FinanceDashboard } from './components/FinanceDashboard';
 import { Service } from './types';
@@ -12,6 +12,7 @@ import { AuthPage } from './pages/AuthPage';
 import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
 import { CatalogServicePage } from './pages/CatalogServicePage';
 import { useAuth } from './contexts/AuthContext';
+import { ClientSourceAnalytics } from './components/ClientSourceAnalytics';
 
 const formatLocalDate = (dateString: string) => {
   // Garantir que a data seja tratada como meio-dia UTC para evitar problemas de fuso horárioooo
@@ -27,6 +28,7 @@ function App() {
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
   const [isCatalogServiceOpen, setIsCatalogServiceOpen] = useState(false);
+  const [isSourceAnalyticsOpen, setIsSourceAnalyticsOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -313,27 +315,25 @@ function App() {
     try {
       toast.loading('Gerando nota fiscal...');
       
-      // Preparar dados para o PDF
-      const serviceToUse = {
-        ...service,
-        // Para compatibilidade com o gerador de PDF existente
-        repaired_parts: service.service?.name 
-          ? [service.service.name] 
-          : (Array.isArray(service.repaired_parts) 
-              ? service.repaired_parts.filter(part => part && typeof part === 'string')
-              : []),
-        auth_code: service.auth_code || `AC${Math.random().toString(36).substring(2, 8).toUpperCase()}`
-      };
+      // Primeiro, carregar detalhes dos serviços selecionados
+      const { loadServiceDetails } = await import('./lib/serviceUtils');
       
-      // Chamar a função aprimorada que tenta múltiplos métodos
-      const success = await generateAndDownloadPDF(serviceToUse);
+      // Carregar detalhes completos dos serviços selecionados
+      const serviceWithDetails = await loadServiceDetails(service);
+      console.log('Serviço com detalhes carregados:', serviceWithDetails);
+      
+      // Importar as funções necessárias
+      const { serviceToNotaFiscal, generateInvoicePDF } = await import('./lib/generateInvoicePDF');
+      
+      // Converter o serviço para o formato de nota fiscal
+      const notaFiscal = serviceToNotaFiscal(serviceWithDetails);
+      console.log('Nota fiscal gerada:', notaFiscal);
+      
+      // Gerar e baixar o PDF
+      generateInvoicePDF(notaFiscal);
       
       toast.dismiss();
-      if (success) {
-        toast.success('Nota fiscal gerada com sucesso!');
-      } else {
-        toast.error('Erro ao gerar a nota fiscal. Tente novamente.');
-      }
+      toast.success('Nota fiscal gerada com sucesso!');
     } catch (error) {
       console.error('Erro ao gerar a nota fiscal:', error);
       toast.dismiss();
@@ -518,6 +518,15 @@ function App() {
                     <PieChart className="h-4 w-4 mr-1 sm:mr-2" />
                     <span className="hidden xs:inline">Stats</span>
                     <span className="xs:hidden">Stats</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => setIsSourceAnalyticsOpen(true)}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+                  >
+                    <Target className="h-4 w-4 mr-1 sm:mr-2" />
+                    <span className="hidden xs:inline">Origem</span>
+                    <span className="xs:hidden">Origem</span>
                   </button>
                   
                   <button
@@ -737,6 +746,14 @@ function App() {
           isOpen={isCatalogServiceOpen}
           onClose={() => setIsCatalogServiceOpen(false)}
           tenant_id={user.id}
+        />
+      )}
+      
+      {isSourceAnalyticsOpen && user && (
+        <ClientSourceAnalytics
+          isOpen={isSourceAnalyticsOpen}
+          onClose={() => setIsSourceAnalyticsOpen(false)}
+          userId={user.id}
         />
       )}
     </div>

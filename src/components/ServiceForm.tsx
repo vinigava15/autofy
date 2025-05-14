@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Service, CatalogService, ServiceStatus } from '../types';
+import { Service, CatalogService, ServiceStatus, ClientSource } from '../types';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import { X, Save, User, Phone, Calendar, DollarSign, Car, FileText, Bookmark, Check, Tag } from 'lucide-react';
+import { 
+  Calendar, 
+  Check, 
+  Car, 
+  User, 
+  Phone, 
+  DollarSign, 
+  Info, 
+  Bookmark, 
+  Tag,
+  X,
+  Save,
+  FileText 
+} from 'lucide-react';
 
 interface ServiceFormProps {
   service?: Service;
@@ -28,18 +41,19 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
     car_model: service?.car_model || '',
     service_value: service?.service_value || 0,
     status: service?.status || 'pago' as ServiceStatus,
+    client_source: service?.client_source || '' as ClientSource,
   });
   
   // Estado para armazenar os IDs dos serviços selecionados
   const [selectedServices, setSelectedServices] = useState<string[]>(() => {
-    // Se estivermos editando e existe service_id, usamos como inicial
-    if (service?.service_id) {
-      return [service.service_id];
-    }
-    
-    // Se tiver selected_services e for uma array válida, usamos
+    // Se tiver selected_services e for uma array válida, usamos como prioridade
     if (service?.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
       return service.selected_services;
+    }
+    
+    // Se estivermos editando e existe service_id, usamos como fallback
+    if (service?.service_id) {
+      return [service.service_id];
     }
     
     // Caso contrário, começamos com array vazio
@@ -58,12 +72,14 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
 
   // Quando um serviço é selecionado/desselecionado, atualizar o valor total dos serviços
   useEffect(() => {
-    if (selectedServices.length > 0) {
+    if (selectedServices.length > 0 && catalogServices.length > 0) {
       // Calcular o valor total somando todos os serviços selecionados
       const totalValue = selectedServices.reduce((total, serviceId) => {
         const selectedService = catalogServices.find(s => s.id === serviceId);
         return total + (selectedService ? selectedService.value : 0);
       }, 0);
+      
+      console.log('Valor total calculado:', totalValue, 'a partir dos serviços:', selectedServices);
       
       setFormData(prev => ({
         ...prev,
@@ -204,6 +220,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
       if (error && error.message?.includes("selected_services")) {
         console.error("A coluna 'selected_services' não existe na tabela:", error);
         toast.error("É necessário executar o script SQL para adicionar a coluna 'selected_services'");
+        toast.error("Execute o comando: supabase sql < supabase/add-selected-services.sql");
         throw new Error("Coluna selected_services não encontrada");
       }
     } catch (error) {
@@ -217,6 +234,12 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
    */
   const updateExistingService = async (serviceId: string, formattedDate: string, primaryServiceId: string) => {
     try {
+      // Garantir que o array selectedServices inclui pelo menos primaryServiceId
+      let updatedSelectedServices = [...selectedServices];
+      if (!updatedSelectedServices.includes(primaryServiceId)) {
+        updatedSelectedServices.unshift(primaryServiceId);
+      }
+      
       // Preparar os dados básicos para atualização
       const updateData = {
         ...formData,
@@ -225,17 +248,13 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
         service_date: formattedDate,
         tenant_id: tenant_id,
         updated_at: new Date().toISOString(),
-        status: formData.status
+        status: formData.status,
+        selected_services: updatedSelectedServices,
+        client_source: formData.client_source || null
       };
       
-      // Tentar incluir selected_services no objeto
-      try {
-        const testObj = { selected_services: selectedServices };
-        // Se não ocorrer erro, adicionamos ao objeto de atualização
-        updateData.selected_services = selectedServices;
-      } catch(err) {
-        console.log("Não foi possível incluir selected_services:", err);
-      }
+      // Registrando para depuração
+      console.log('Atualizando serviço com dados:', updateData);
       
       const { error } = await supabase
         .from('services')
@@ -255,11 +274,16 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               service_date: formattedDate,
               tenant_id: tenant_id,
               updated_at: new Date().toISOString(),
-              status: formData.status
+              status: formData.status,
+              client_source: formData.client_source || null
             })
             .eq('id', serviceId);
             
           if (retryError) throw retryError;
+          
+          // Exibir mensagem para o usuário executar o script SQL
+          toast.warning("Para salvar múltiplos serviços, execute o script SQL que adiciona o suporte a múltiplos serviços");
+          toast.info("Comando: supabase sql < supabase/add-selected-services.sql");
         } else if (error.message?.includes("status")) {
           console.warn("Tentando atualizar sem o campo status");
           // Se o erro for relacionado ao campo status (coluna não existe), tentar sem ele
@@ -273,6 +297,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               tenant_id: tenant_id,
               updated_at: new Date().toISOString(),
               // Remove o campo status
+              client_source: formData.client_source || null
             })
             .eq('id', serviceId);
           
@@ -301,6 +326,12 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
       // Gerar código de autenticação randomico
       const authCode = `AC${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       
+      // Garantir que o array selectedServices inclui pelo menos primaryServiceId
+      let updatedSelectedServices = [...selectedServices];
+      if (!updatedSelectedServices.includes(primaryServiceId)) {
+        updatedSelectedServices.unshift(primaryServiceId);
+      }
+      
       // Criar objeto base para inserção
       const insertData = {
         client_name: formData.client_name,
@@ -314,17 +345,13 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
         tenant_id: tenant_id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        status: formData.status
+        status: formData.status,
+        selected_services: updatedSelectedServices,
+        client_source: formData.client_source || null
       };
       
-      // Tentar incluir selected_services no objeto
-      try {
-        const testObj = { selected_services: selectedServices };
-        // Se não ocorrer erro, adicionamos ao objeto de inserção
-        insertData.selected_services = selectedServices;
-      } catch(err) {
-        console.log("Não foi possível incluir selected_services:", err);
-      }
+      // Registrando para depuração
+      console.log('Criando serviço com dados:', insertData);
       
       const { error, data } = await supabase
         .from('services')
@@ -348,6 +375,10 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
             .single();
             
           if (retryError) throw retryError;
+          
+          // Exibir mensagem para o usuário executar o script SQL
+          toast.warning("Para salvar múltiplos serviços, execute o script SQL que adiciona o suporte a múltiplos serviços");
+          toast.info("Comando: supabase sql < supabase/add-selected-services.sql");
         } else if (error.message?.includes("status")) {
           console.warn("Tentando inserir sem o campo status");
           
@@ -428,6 +459,27 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               onChange={handlePhoneChange}
               maxLength={15}
             />
+          </div>
+          
+          {/* Origem do Cliente */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <Info className="w-4 h-4 mr-1 text-blue-600" />
+              Origem do Cliente
+            </label>
+            <select
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={formData.client_source}
+              onChange={(e) => setFormData({ ...formData, client_source: e.target.value as ClientSource })}
+            >
+              <option value="">Selecionar origem</option>
+              <option value="instagram">Instagram</option>
+              <option value="google">Google</option>
+              <option value="indicacao">Indicação</option>
+              <option value="facebook">Facebook</option>
+              <option value="site">Site</option>
+              <option value="outros">Outros</option>
+            </select>
           </div>
 
           {/* Data e Valor do Serviço */}
@@ -609,14 +661,28 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
             
             {catalogServices.length > 0 && selectedServices.length > 0 && (
               <div className="mt-3 pt-3 border-t border-gray-100">
-                <p className="text-sm font-medium text-gray-700">Serviços selecionados ({selectedServices.length}):</p>
+                <p className="text-sm font-medium text-gray-700">
+                  Serviços selecionados ({selectedServices.length}):
+                </p>
                 <ul className="mt-1 text-sm text-gray-600">
                   {selectedServices.map(serviceId => {
                     const service = catalogServices.find(s => s.id === serviceId);
                     return service ? (
-                      <li key={service.id} className="flex justify-between">
-                        <span>{service.name}</span>
-                        <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(service.value)}</span>
+                      <li key={service.id} className="flex justify-between items-center py-1 border-b border-gray-100 last:border-b-0">
+                        <span className="font-medium">{service.name}</span>
+                        <div className="flex items-center">
+                          <span className="text-green-600 mr-2">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(service.value)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleServiceSelection(service.id)}
+                            className="text-red-500 hover:text-red-700 transition-colors"
+                            title="Remover serviço"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </li>
                     ) : null;
                   })}

@@ -9,6 +9,8 @@ export interface CatalogService {
 
 export type ServiceStatus = 'orcamento' | 'pago' | 'nao_pago';
 
+export type ClientSource = 'instagram' | 'google' | 'indicacao' | 'facebook' | 'site' | 'outros';
+
 export interface Service {
   id: string;
   client_name: string;
@@ -28,6 +30,7 @@ export interface Service {
   catalog_services?: CatalogService[];
   services?: CatalogService[];
   status?: ServiceStatus;
+  client_source?: ClientSource;
 }
 
 export const REPAIRED_PARTS = [
@@ -78,4 +81,5 @@ export interface NotaFiscal {
   codigoAutenticacao: string;
   numeroPedido?: string;
   observacoes?: string;
+  status?: ServiceStatus;
 }
