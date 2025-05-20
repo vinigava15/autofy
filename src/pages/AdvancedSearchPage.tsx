@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Pencil, Trash2, FileText, ArrowLeft, Search, X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { generateAndDownloadPDF } from '../lib/generateInvoicePDF';
+import { formatService } from '../utils/serviceFormatters';
 
 const MESES = [
   { value: '', label: 'Todos os meses' },
@@ -231,45 +232,6 @@ export function AdvancedSearchPage({ onBack }: { onBack: () => void }) {
     }
   };
 
-  // Formatar o serviço para exibição
-  const formatService = (service: Service): string => {
-    // Se o serviço do catálogo estiver disponível, mostrar o nome
-    if (service.service && service.service.name) {
-      return service.service.name;
-    }
-    
-    // Mantendo o código para compatibilidade com dados antigos (peças reparadas)
-    if (!service.repaired_parts) return '-';
-    
-    let partsArray: string[] = [];
-    
-    if (Array.isArray(service.repaired_parts)) {
-      partsArray = service.repaired_parts;
-    } else if (typeof service.repaired_parts === 'string') {
-      partsArray = [service.repaired_parts];
-    } else if (typeof service.repaired_parts === 'object') {
-      try {
-        const values = Object.values(service.repaired_parts).filter(Boolean);
-        partsArray = values.map(val => String(val));
-      } catch (e) {
-        return '-';
-      }
-    } else {
-      return '-';
-    }
-    
-    const formattedParts = partsArray
-      .filter(part => part !== null && part !== undefined)
-      .map(part => {
-        const partStr = String(part).trim();
-        if (!partStr) return '';
-        return partStr.charAt(0).toUpperCase() + partStr.slice(1).toLowerCase();
-      })
-      .filter(part => part !== '');
-    
-    return formattedParts.length > 0 ? formattedParts.join(', ') : '-';
-  };
-
   // Função para gerar a nota fiscal em PDF
   const handleGenerateInvoice = async (service: Service) => {
     try {
@@ -277,9 +239,6 @@ export function AdvancedSearchPage({ onBack }: { onBack: () => void }) {
       
       const serviceToUse = {
         ...service,
-        repaired_parts: Array.isArray(service.repaired_parts) 
-          ? service.repaired_parts.filter(part => part && typeof part === 'string')
-          : [],
         auth_code: service.auth_code || `AC${Math.random().toString(36).substring(2, 8).toUpperCase()}`
       };
       

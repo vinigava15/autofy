@@ -523,13 +523,8 @@ function createDocDefinition(service: Service): TDocumentDefinitions {
                   color: colors.text,
                   margin: [0, 2, 0, 2] as [number, number, number, number]
                 }))
-              : service.repaired_parts && Array.isArray(service.repaired_parts) && service.repaired_parts.length > 0
-              ? service.repaired_parts.map(part => ({
-                  text: part,
-                  fontSize: 9,
-                  color: colors.text,
-                  margin: [0, 2, 0, 2] as [number, number, number, number]
-                }))
+              : hasRepairedParts(service)
+              ? (service as any).repaired_parts
               : [{ text: 'Nenhum serviço especificado', fontSize: 9, italics: true, color: colors.textLight }]
           }
         ],
@@ -1015,7 +1010,7 @@ export const serviceToNotaFiscal = (service: any): NotaFiscal => {
       descricaoServico: service.service.name,
       valor: service.service_value
     });
-  } else if (service.repaired_parts && Array.isArray(service.repaired_parts) && service.repaired_parts.length > 0) {
+  } else if (hasRepairedParts(service)) {
     // Formato ainda mais antigo: cada peça reparada é um serviço
     // Distribuir o valor total entre as peças reparadas
     console.log('Usando peças reparadas como serviços:', service.repaired_parts);
@@ -1182,7 +1177,7 @@ function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
     content: [
       { text: 'AUTOFY', style: 'header' },
       { text: documentTitle, style: 'subheader' },
-      statusText ? { text: statusText, style: 'status', color: statusColor, alignment: 'center', margin: [0, 5, 0, 15] } : {},
+      statusText ? { text: statusText, style: 'status', color: statusColor, alignment: 'center' as const, margin: [0, 5, 0, 15] } : { text: '' },
       { text: `Código de Autenticação: ${service.auth_code || 'N/A'}`, style: 'auth' },
       { text: `Data: ${service.service_date ? format(new Date(service.service_date), 'dd/MM/yyyy') : 'N/A'}`, margin: [0, 10, 0, 0] },
       { text: 'INFORMAÇÕES DO CLIENTE', style: 'sectionHeader', margin: [0, 15, 0, 5] },
@@ -1218,8 +1213,8 @@ function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
           ? service.catalog_services.map(catalogService => catalogService.name)
           : service.services && Array.isArray(service.services)
           ? service.services.map(catalogService => catalogService.name)
-          : service.repaired_parts && Array.isArray(service.repaired_parts)
-          ? service.repaired_parts
+          : hasRepairedParts(service)
+          ? (service as any).repaired_parts
           : ['Nenhum serviço especificado']
       },
       
@@ -1270,4 +1265,11 @@ function createSimpleDocDefinition(service: Service): TDocumentDefinitions {
       }
     }
   };
-} 
+}
+
+// Ajustar para lidar com service.repaired_parts mesmo quando a propriedade não existe no tipo
+const hasRepairedParts = (service: any): boolean => {
+  return service.repaired_parts && 
+         Array.isArray(service.repaired_parts) && 
+         service.repaired_parts.length > 0;
+}; 

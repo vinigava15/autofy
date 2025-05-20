@@ -12,18 +12,16 @@ import {
   generateAvailableMonths 
 } from '../utils/dateUtils';
 import { 
-  SummaryCard, 
   LoadingSpinner, 
   ErrorMessage, 
   MonthSelector,
   MetricCard,
-  EmptyStateMessage 
+  EmptyStateMessage
 } from './ui';
 import { ExpensesTable, OtherIncomeTable } from './ui/FinanceTable';
 import { ExpenseForm } from './ExpenseForm';
 import { OtherIncomeForm } from './OtherIncomeForm';
 import { 
-  FinanceSummary, 
   FinanceDashboardProps, 
   SelectedMonthData,
   AvailableMonth,
@@ -31,8 +29,9 @@ import {
   Expense,
   OtherIncome
 } from '../types/finance';
+import { checkAndGenerateFixedExpenses } from '../utils/fixedExpensesGenerator.tsx';
 
-// Tipo para o resumo por período modificado
+// Type para o resumo por período
 interface PeriodSummary {
   name: string;
   servicesTotal: number;
@@ -40,6 +39,11 @@ interface PeriodSummary {
   otherIncomeTotal: number;
   netBalance: number;
   totalServicesCount: number;
+  period?: string;
+  totalServices?: number;
+  percentChange?: number;
+  periodStart?: Date;
+  periodEnd?: Date;
 }
 
 /**
@@ -50,12 +54,14 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [periodSummaries, setPeriodSummaries] = useState<PeriodSummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<Date>(() => new Date());
-  const [selectedMonthData, setSelectedMonthData] = useState<SelectedMonthData>({ 
-    services: [], 
-    totalValue: 0, 
-    averageValue: 0,
+  const [selectedMonthData, setSelectedMonthData] = useState<SelectedMonthData>({
+    services: [],
     expenses: [],
     otherIncome: [],
+    servicesTotal: 0,
+    expensesTotal: 0,
+    otherIncomeTotal: 0,
+    totalValue: 0,
     totalExpenses: 0,
     totalOtherIncome: 0,
     netBalance: 0,
@@ -75,6 +81,21 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
     if (isOpen && user) {
       fetchFinancialData();
       setAvailableMonths(generateAvailableMonths());
+    }
+  }, [isOpen, user]);
+  
+  useEffect(() => {
+    if (isOpen && user) {
+      // Verificar e gerar despesas fixas automaticamente
+      checkAndGenerateFixedExpenses(user.id)
+        .then(success => {
+          if (success) {
+            // Atualizar dados após a geração de despesas fixas
+            fetchFinancialData();
+            setAvailableMonths(generateAvailableMonths());
+          }
+        })
+        .catch(err => console.error('Erro ao verificar despesas fixas:', err));
     }
   }, [isOpen, user]);
   
@@ -131,18 +152,19 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
     }
   };
 
-  const fetchPeriodSummaries = async (periods: { name: string, start: string, end: string }[]): Promise<PeriodSummary[]> => {
+  const fetchPeriodSummaries = async (periods: Array<{ name: string, start: string, end: string }>): Promise<PeriodSummary[]> => {
     if (!user) return [];
     
     return Promise.all(
       periods.map(async (period) => {
-        // Buscar serviços (apenas pagos para cálculos financeiros)
+        // Buscar serviços (apenas pagos para cálculos financeiros e excluindo orçamentos)
         const { data: servicesData, error: servicesError } = await supabase
           .from('services')
           .select('service_value, status')
           .eq('tenant_id', user.id)
           .gte('service_date', period.start)
-          .lte('service_date', period.end);
+          .lte('service_date', period.end)
+          .neq('status', 'orcamento'); // Excluir orçamentos
           
         if (servicesError) throw new Error(`Erro ao buscar dados de serviços para ${period.name}: ${servicesError.message}`);
         
@@ -203,20 +225,20 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
     if (!user) return;
     
     setIsLoading(true);
+    setError(null);
+    
     try {
-      const startDate = startOfMonth(date);
-      const endDate = endOfMonth(date);
+      const startDate = formatDateForQuery(startOfMonth(date));
+      const endDate = formatDateForQuery(endOfMonth(date));
       
-      const start = formatDateForQuery(startDate);
-      const end = formatDateForQuery(endDate);
-      
-      // Buscar serviços
+      // Buscar serviços do mês (excluindo orçamentos)
       const { data: servicesData, error: servicesError } = await supabase
         .from('services')
         .select('*')
         .eq('tenant_id', user.id)
-        .gte('service_date', start)
-        .lte('service_date', end)
+        .gte('service_date', startDate)
+        .lte('service_date', endDate)
+        .neq('status', 'orcamento') // Excluir orçamentos
         .order('service_date', { ascending: false });
         
       if (servicesError) throw servicesError;
@@ -226,8 +248,8 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
         .from('expenses')
         .select('*')
         .eq('tenant_id', user.id)
-        .gte('expense_date', start)
-        .lte('expense_date', end)
+        .gte('expense_date', startDate)
+        .lte('expense_date', endDate)
         .order('expense_date', { ascending: false });
         
       if (expensesError) throw expensesError;
@@ -237,42 +259,38 @@ export function FinanceDashboard({ onClose, isOpen }: FinanceDashboardProps) {
         .from('other_income')
         .select('*')
         .eq('tenant_id', user.id)
-        .gte('income_date', start)
-        .lte('income_date', end)
+        .gte('income_date', startDate)
+        .lte('income_date', endDate)
         .order('income_date', { ascending: false });
         
       if (otherIncomeError) throw otherIncomeError;
       
-      // Filtrar serviços por status e calcular totais
-      const servicesPagos = servicesData?.filter(service => service.status === 'pago') || [];
-      const servicesTotalPagos = servicesPagos.reduce((sum, service) => sum + (parseFloat(service.service_value) || 0), 0);
+      // Calcular os totais
+      const servicesTotalValue = servicesData ? servicesData.reduce((sum, srv) => sum + srv.service_value, 0) : 0;
+      const expensesTotalValue = expensesData ? expensesData.reduce((sum, exp) => sum + exp.value, 0) : 0;
+      const otherIncomeTotalValue = otherIncomeData ? otherIncomeData.reduce((sum, inc) => sum + inc.value, 0) : 0;
       
-      // Calcular totais para todos os serviços (para contagem)
-      const totalServicesCount = servicesData?.length || 0;
+      // Calcular o saldo do mês
+      const netBalanceValue = servicesTotalValue + otherIncomeTotalValue - expensesTotalValue;
       
-      // Calcular totais para despesas e ganhos extras
-      const totalExpenses = expensesData?.reduce((sum, expense) => sum + (parseFloat(expense.value) || 0), 0) || 0;
-      const totalOtherIncome = otherIncomeData?.reduce((sum, income) => sum + (parseFloat(income.value) || 0), 0) || 0;
+      // Filtrar serviços pagos
+      const servicesPagos = servicesData ? servicesData.filter(srv => srv.status === 'pago') : [];
       
-      // Calcular valor total (apenas serviços PAGOS + ganhos extras)
-      const totalValue = servicesTotalPagos + totalOtherIncome;
-      
-      // Calcular saldo líquido
-      const netBalance = totalValue - totalExpenses;
-      
-      // Calcular média de valor por serviço PAGO
-      const averageValue = servicesPagos.length ? servicesTotalPagos / servicesPagos.length : 0;
+      // Número total de serviços
+      const totalServicesCount = servicesData ? servicesData.length : 0;
       
       setSelectedMonthData({
         services: servicesData || [],
-        totalValue,
-        averageValue,
         expenses: expensesData || [],
         otherIncome: otherIncomeData || [],
-        totalExpenses,
-        totalOtherIncome,
-        netBalance,
-        servicesPagos,
+        servicesTotal: servicesTotalValue,
+        expensesTotal: expensesTotalValue,
+        otherIncomeTotal: otherIncomeTotalValue,
+        totalValue: servicesTotalValue + otherIncomeTotalValue,
+        totalExpenses: expensesTotalValue,
+        totalOtherIncome: otherIncomeTotalValue,
+        netBalance: netBalanceValue,
+        servicesPagos: servicesPagos,
         totalServicesCount
       });
     } catch (err) {
@@ -510,7 +528,7 @@ function MonthlyDetailSection({
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-        <h3 className="text-lg font-medium text-gray-900 flex items-center">
+        <h3 className="text-lg font-medium text-gray-900 flex items-center mb-3 sm:mb-0">
           <DollarSign className="h-5 w-5 mr-2 text-blue-600" />
           Detalhes por mês
         </h3>
@@ -546,10 +564,11 @@ function MonthlyDetailSection({
           </h4>
           <button
             onClick={onOpenExpenseForm}
-            className="inline-flex items-center px-3 py-1 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
           >
-            <Plus className="h-4 w-4 mr-1" />
-            Nova Despesa
+            <Plus className="h-5 w-5 mr-2" />
+            <span className="hidden sm:inline">Nova Despesa</span>
+            <span className="inline sm:hidden">Nova</span>
           </button>
         </div>
         
@@ -569,10 +588,11 @@ function MonthlyDetailSection({
           </h4>
           <button
             onClick={onOpenOtherIncomeForm}
-            className="inline-flex items-center px-3 py-1 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
-            <Plus className="h-4 w-4 mr-1" />
-            Novo Ganho
+            <Plus className="h-5 w-5 mr-2" />
+            <span className="hidden sm:inline">Novo Ganho</span>
+            <span className="inline sm:hidden">Novo</span>
           </button>
         </div>
         
@@ -594,27 +614,27 @@ function MonthMetrics({ data }: { data: SelectedMonthData }) {
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-6">
       <MetricCard 
         title="Receita Total"
-        value={formatCurrency(data.totalValue)}
+        value={formatCurrency(data.totalValue || 0)}
         icon={<DollarSign className="h-4 w-4 text-white" />}
         colorClass="from-blue-500 to-blue-600"
       />
       <MetricCard 
         title="Despesas"
-        value={formatCurrency(data.totalExpenses)}
+        value={formatCurrency(data.totalExpenses || 0)}
         icon={<Inbox className="h-4 w-4 text-white" />}
         colorClass="from-red-500 to-red-600"
       />
       <MetricCard 
         title="Ganhos Extras"
-        value={formatCurrency(data.totalOtherIncome)}
+        value={formatCurrency(data.totalOtherIncome || 0)}
         icon={<PiggyBank className="h-4 w-4 text-white" />}
         colorClass="from-green-500 to-green-600"
       />
       <MetricCard 
         title="Saldo Final"
-        value={formatCurrency(data.netBalance)}
+        value={formatCurrency(data.netBalance || 0)}
         icon={<DollarSign className="h-4 w-4 text-white" />}
-        colorClass={data.netBalance >= 0 ? "from-emerald-500 to-teal-600" : "from-rose-500 to-red-600"}
+        colorClass={data.netBalance && data.netBalance >= 0 ? "from-emerald-500 to-teal-600" : "from-rose-500 to-red-600"}
       />
       <MetricCard 
         title="Serviços"

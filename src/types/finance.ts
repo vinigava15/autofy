@@ -1,3 +1,5 @@
+import { Service } from '../types';
+
 /**
  * Resumo financeiro para um período específico
  */
@@ -13,21 +15,24 @@ export interface FinanceSummary {
 export interface FinanceDashboardProps {
   onClose: () => void;
   isOpen: boolean;
+  tenant_id?: string;
 }
 
 /**
  * Dados para o mês selecionado
  */
 export interface SelectedMonthData {
-  services: ServiceData[];
-  totalValue: number;
-  averageValue: number;
+  services: Service[];
   expenses: Expense[];
   otherIncome: OtherIncome[];
-  totalExpenses: number;
-  totalOtherIncome: number;
-  netBalance: number;
-  servicesPagos?: ServiceData[];
+  servicesTotal: number;
+  expensesTotal: number;
+  otherIncomeTotal: number;
+  totalValue?: number;
+  totalExpenses?: number;
+  totalOtherIncome?: number;
+  netBalance?: number;
+  servicesPagos?: Service[];
   totalServicesCount?: number;
 }
 
@@ -75,6 +80,10 @@ export interface Expense {
   tenant_id: string;
   created_at: string;
   updated_at: string;
+  is_fixed?: boolean;
+  fixed_day_of_month?: number;
+  next_generation_date?: string;
+  original_expense_id?: string;
 }
 
 /**

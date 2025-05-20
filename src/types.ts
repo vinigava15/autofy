@@ -9,7 +9,18 @@ export interface CatalogService {
 
 export type ServiceStatus = 'orcamento' | 'pago' | 'nao_pago';
 
+// Novo tipo para o status de conclusão
+export type CompletionStatus = 'concluido' | 'em_andamento' | 'nao_iniciado';
+
 export type ClientSource = 'instagram' | 'google' | 'indicacao' | 'facebook' | 'site' | 'outros';
+
+// Interface para armazenar dados de fotos do veículo
+export interface VehiclePhoto {
+  id: string;
+  url: string;
+  description?: string;
+  created_at: string;
+}
 
 export interface Service {
   id: string;
@@ -31,6 +42,9 @@ export interface Service {
   services?: CatalogService[];
   status?: ServiceStatus;
   client_source?: ClientSource;
+  // Novos campos
+  completion_status?: CompletionStatus;
+  photos?: VehiclePhoto[];
 }
 
 export const REPAIRED_PARTS = [
@@ -82,4 +96,5 @@ export interface NotaFiscal {
   numeroPedido?: string;
   observacoes?: string;
   status?: ServiceStatus;
+  completion_status?: CompletionStatus;
 }

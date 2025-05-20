@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, X, DollarSign, Inbox, PiggyBank, Target } from 'lucide-react';
+import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, X, DollarSign, Target, List, Kanban, Clock, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ServiceForm } from './components/ServiceForm';
 import { FinanceDashboard } from './components/FinanceDashboard';
 import { Service } from './types';
 import { supabase } from './lib/supabase';
 import toast from 'react-hot-toast';
-import { generateAndDownloadPDF } from './lib/generateInvoicePDF';
 import { AuthPage } from './pages/AuthPage';
-import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
 import { CatalogServicePage } from './pages/CatalogServicePage';
 import { useAuth } from './contexts/AuthContext';
 import { ClientSourceAnalytics } from './components/ClientSourceAnalytics';
+import { KanbanBoard } from './components/KanbanBoard';
+import { QuotationsList } from './components/QuotationsList';
+import { CompletedServicesList } from './components/CompletedServicesList';
+import { ServiceCard } from './components/ui/ServiceCard';
+import { formatService } from './utils/serviceFormatters';
 
 const formatLocalDate = (dateString: string) => {
   // Garantir que a data seja tratada como meio-dia UTC para evitar problemas de fuso horárioooo
@@ -29,10 +32,15 @@ function App() {
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
   const [isCatalogServiceOpen, setIsCatalogServiceOpen] = useState(false);
   const [isSourceAnalyticsOpen, setIsSourceAnalyticsOpen] = useState(false);
+  const [isQuotationsOpen, setIsQuotationsOpen] = useState(false);
+  const [isCompletedServicesOpen, setIsCompletedServicesOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [currentPage, setCurrentPage] = useState(1);
+  const servicesPerPage = 10;
 
   // Buscar o perfil do usuário
   const fetchUserProfile = async () => {
@@ -62,11 +70,14 @@ function App() {
     try {
       setLoadingError(null);
       
-      // Primeiro, buscar todos os serviços
+      // Buscar serviços, excluindo orçamentos e também serviços concluídos e pagos
+      // Usamos or() para filtrar serviços que NÃO são simultaneamente pagos E concluídos
       const { data: servicesData, error: servicesError } = await supabase
         .from('services')
         .select('*')
         .eq('tenant_id', user.id)
+        .neq('status', 'orcamento') // Não buscar orçamentos
+        .or('status.neq.pago,completion_status.neq.concluido') // Mostrar serviços que não são pagos OU não são concluídos
         .order('service_date', { ascending: false });
 
       if (servicesError) {
@@ -79,12 +90,14 @@ function App() {
       // Array para armazenar os serviços processados
       const processedServices = [];
       
-      // Para cada serviço, buscar o serviço do catálogo correspondente, se existir
+      // Para cada serviço, buscar informações adicionais
       for (const service of servicesData || []) {
         let catalogService = null;
+        let catalogServices: any[] = [];
+        let photos: any[] = [];
         
+        // Buscar o serviço do catálogo correspondente, se existir
         if (service.service_id) {
-          // Buscar o serviço do catálogo correspondente
           const { data: catalogData, error: catalogError } = await supabase
             .from('catalog_services')
             .select('id, name, value')
@@ -94,6 +107,29 @@ function App() {
           if (!catalogError && catalogData) {
             catalogService = catalogData;
           }
+        }
+        
+        // Buscar todos os serviços do catálogo selecionados, se houver
+        if (service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
+          const { data: catalogData, error: catalogError } = await supabase
+            .from('catalog_services')
+            .select('id, name, value')
+            .in('id', service.selected_services);
+            
+          if (!catalogError && catalogData) {
+            catalogServices = catalogData;
+          }
+        }
+        
+        // Buscar fotos do veículo, se houver
+        const { data: photosData, error: photosError } = await supabase
+          .from('vehicle_photos')
+          .select('id, url, description, created_at')
+          .eq('service_id', service.id)
+          .eq('tenant_id', user.id);
+          
+        if (!photosError && photosData) {
+          photos = photosData;
         }
         
         // Padronizar o formato da data para evitar problemas de fuso horário
@@ -111,16 +147,19 @@ function App() {
         processedServices.push({
           ...service,
           service: catalogService,
+          catalog_services: catalogServices,
           auth_code: authCode,
-          service_date: standardizedDate
+          service_date: standardizedDate,
+          photos: photos
         });
       }
       
       setServices(processedServices);
       
-      // Mostrar apenas os 10 serviços mais recentes quando não há busca
-      const recentServices = processedServices.slice(0, 10);
-      setFilteredServices(recentServices);
+      // Iniciar mostrando todos os serviços (serão limitados pela paginação na interface)
+      setFilteredServices(processedServices);
+      // Resetar para a primeira página quando carregar novos serviços
+      setCurrentPage(1);
       
     } catch (error) {
       console.error('Erro ao buscar serviços:', error);
@@ -134,9 +173,9 @@ function App() {
     setSearchTerm(term);
     
     if (!term.trim()) {
-      // Se o termo de busca estiver vazio, mostrar apenas os 10 serviços mais recentes
-      const recentServices = services.slice(0, 10);
-      setFilteredServices(recentServices);
+      // Se o termo de busca estiver vazio, mostrar todos os serviços (paginados)
+      setFilteredServices(services);
+      setCurrentPage(1);
       return;
     }
     
@@ -150,6 +189,14 @@ function App() {
     );
     
     setFilteredServices(filtered);
+    setCurrentPage(1); // Resetar para a primeira página ao buscar
+  };
+
+  // Função para obter os serviços da página atual
+  const getCurrentPageServices = () => {
+    const indexOfLastService = currentPage * servicesPerPage;
+    const indexOfFirstService = indexOfLastService - servicesPerPage;
+    return filteredServices.slice(indexOfFirstService, indexOfLastService);
   };
 
   useEffect(() => {
@@ -217,29 +264,6 @@ function App() {
     fetchServices();
   };
 
-  const handleAdvancedSearchSuccess = () => {
-    console.log('Fechando busca avançada');
-    setIsAdvancedSearchOpen(false);
-    
-    // Verificar se há um serviço para edição no localStorage
-    const editingServiceJson = localStorage.getItem('editingService');
-    if (editingServiceJson) {
-      try {
-        const service = JSON.parse(editingServiceJson);
-        setEditingService(service);
-        setIsFormOpen(true);
-        localStorage.removeItem('editingService');
-      } catch (error) {
-        console.error('Erro ao processar serviço para edição:', error);
-      }
-    }
-    
-    // Recarregar os serviços para atualizar a lista
-    setTimeout(() => {
-      fetchServices();
-    }, 100);
-  };
-
   const handleLogout = async () => {
     try {
       await signOut();
@@ -249,65 +273,6 @@ function App() {
       // Não exibir toast de erro para não confundir o usuário
       // O AuthContext já trata a limpeza do estado mesmo em caso de erro
     }
-  };
-
-  // Função para formatar o serviço para exibição na tabela
-  const formatService = (service: Service): string => {
-    // Verificar se temos uma lista de serviços selecionados
-    if (service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
-      // Se tivermos catalog_services (resultado de JOIN)
-      if (service.catalog_services && Array.isArray(service.catalog_services)) {
-        return service.catalog_services.map((s: any) => s.name).join(', ');
-      }
-      
-      // Caso tenhamos serviços em um campo services
-      if (service.services && Array.isArray(service.services)) {
-        return service.services.map((s: any) => s.name).join(', ');
-      }
-      
-      // Se tivermos apenas os IDs dos serviços e o service com o nome
-      if (service.service?.name) {
-        return `${service.service.name}${service.selected_services.length > 1 ? ' e mais...' : ''}`;
-      }
-    }
-
-    // Se o serviço do catálogo estiver disponível, mostrar o nome (formato antigo)
-    if (service.service?.name) {
-      return service.service.name;
-    }
-    
-    // Mantendo o código para compatibilidade com dados antigos (peças reparadas)
-    if (!service.repaired_parts) return '-';
-    
-    // Se não for um array, tenta converter para array se possível
-    let partsArray: string[] = [];
-    
-    if (Array.isArray(service.repaired_parts)) {
-      partsArray = service.repaired_parts;
-    } else if (typeof service.repaired_parts === 'string') {
-      partsArray = [service.repaired_parts];
-    } else if (typeof service.repaired_parts === 'object') {
-      try {
-        // Tenta extrair valores se for um objeto
-        const values = Object.values(service.repaired_parts).filter(Boolean);
-        partsArray = values.map(val => String(val));
-      } catch (e) {
-        return '-';
-      }
-    } else {
-      return '-';
-    }
-    
-    const formattedParts = partsArray
-      .filter(part => part !== null && part !== undefined)
-      .map(part => {
-        const partStr = String(part).trim();
-        if (!partStr) return '';
-        return partStr.charAt(0).toUpperCase() + partStr.slice(1).toLowerCase();
-      })
-      .filter(part => part !== '');
-    
-    return formattedParts.length > 0 ? formattedParts.join(', ') : '-';
   };
 
   // Função para gerar a nota fiscal em PDF
@@ -347,6 +312,37 @@ function App() {
     fetchServices();
   };
 
+  // Função para marcar serviço como pago rapidamente
+  const handleMarkAsPaid = async (id: string) => {
+    try {
+      toast.loading('Atualizando status...');
+      
+      const { error } = await supabase
+        .from('services')
+        .update({ 
+          status: 'pago',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('tenant_id', user?.id);
+
+      if (error) {
+        console.error('Erro ao atualizar status do serviço:', error);
+        toast.dismiss();
+        toast.error('Erro ao atualizar status do serviço');
+        return;
+      }
+
+      toast.dismiss();
+      toast.success('Serviço marcado como pago!');
+      fetchServices();
+    } catch (error) {
+      console.error('Erro ao atualizar status do serviço:', error);
+      toast.dismiss();
+      toast.error('Erro ao atualizar status do serviço');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-blue-50 to-indigo-100">
@@ -378,17 +374,17 @@ function App() {
           )}
           <button
             onClick={handleLogout}
-            className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-blue-500 transition-colors flex items-center"
+            className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-blue-500 transition-colors flex items-center touch-action-button"
             title="Sair"
           >
-            <LogOut className="w-4 h-4 mr-1" />
+            <LogOut className="w-4 h-4 sm:mr-1" />
             <span className="hidden sm:inline">Sair</span>
           </button>
         </div>
       </header>
       
       {/* Conteúdo principal */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-screen-2xl mx-auto px-[25px] py-8">
         {/* Mostra Busca Avançada ou Tela Principal dependendo do estado */}
         {isAdvancedSearchOpen ? (
           /* Tela de Busca Avançada */
@@ -396,7 +392,7 @@ function App() {
             <div className="flex items-center mb-6">
               <button 
                 onClick={() => setIsAdvancedSearchOpen(false)}
-                className="flex items-center text-blue-600 hover:text-blue-800"
+                className="flex items-center text-blue-600 hover:text-blue-800 touch-action-button"
               >
                 <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -476,90 +472,91 @@ function App() {
           <>
             {/* Toolbar */}
             <div className="bg-white shadow-md rounded-lg mb-6 p-4 border border-gray-100">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-                <div className="w-full sm:flex-1">
-                  <div className="relative rounded-md shadow-sm">
+              <div className="flex flex-col lg:flex-row justify-between items-center mb-4">
+                <div className="flex w-full lg:w-auto mb-4 lg:mb-0">
+                  <div className="relative flex-grow">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Search className="h-5 w-5 text-gray-400" />
+                      <Search className="h-4 w-4 text-gray-400" />
                     </div>
                     <input
                       type="text"
-                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 text-sm border-gray-300 rounded-md py-2"
-                      placeholder="Buscar cliente ou placa..."
+                      placeholder="Buscar por cliente ou placa..."
+                      className="w-full pl-10 pr-4 py-2 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                       value={searchTerm}
                       onChange={(e) => filterServices(e.target.value)}
                     />
                   </div>
-                </div>
-                
-                <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
                   <button
                     onClick={() => setIsAdvancedSearchOpen(true)}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+                    className="ml-2 px-3 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md flex items-center touch-action-button"
+                    title="Busca Avançada"
                   >
-                    <Filter className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Filtrar</span>
-                    <span className="xs:hidden">Filtrar</span>
+                    <Filter className="h-4 w-4" />
                   </button>
-                   
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex gap-2 lg:space-x-2 w-full lg:w-auto">
+                  {/* Botões de alternância de visualização */}
+                  <div className="flex border border-gray-300 rounded-md overflow-hidden col-span-2 sm:col-span-1">
+                    <button
+                      className={`flex-1 px-3 py-2 flex items-center justify-center ${viewMode === 'table' ? 'bg-blue-100 text-blue-700' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
+                      onClick={() => setViewMode('table')}
+                      title="Visualização em tabela"
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                    <button
+                      className={`flex-1 px-3 py-2 flex items-center justify-center ${viewMode === 'kanban' ? 'bg-blue-100 text-blue-700' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
+                      onClick={() => setViewMode('kanban')}
+                      title="Visualização Kanban"
+                    >
+                      <Kanban className="h-4 w-4" />
+                    </button>
+                  </div>
+                  
+                  <button
+                    onClick={() => setIsFormOpen(true)}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
+                  >
+                    <Plus className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Novo</span>
+                  </button>
+                  <button
+                    onClick={() => setIsQuotationsOpen(true)}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
+                  >
+                    <Clock className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Orçamentos</span>
+                  </button>
+                  <button
+                    onClick={() => setIsCompletedServicesOpen(true)}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
+                  >
+                    <CheckCircle2 className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Concluídos</span>
+                  </button>
                   <button
                     onClick={() => setIsCatalogServiceOpen(true)}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
+                    className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
                   >
-                    <Bookmark className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Cat</span>
-                    <span className="xs:hidden">Cat</span>
+                    <Bookmark className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Catálogo</span>
                   </button>
-                  
-                  <button
-                    onClick={() => setIsDashboardOpen(true)}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
-                  >
-                    <PieChart className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Stats</span>
-                    <span className="xs:hidden">Stats</span>
-                  </button>
-                  
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsDashboardOpen(true)}
+                      className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
+                    >
+                      <PieChart className="h-4 w-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Financeiro</span>
+                    </button>
+                  </div>
                   <button
                     onClick={() => setIsSourceAnalyticsOpen(true)}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+                    className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 touch-action-button"
                   >
-                    <Target className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Origem</span>
-                    <span className="xs:hidden">Origem</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      setIsDashboardOpen(true);
-                      localStorage.setItem('openExpenseForm', 'true');
-                    }}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors shadow-sm"
-                  >
-                    <Inbox className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Desp</span>
-                    <span className="xs:hidden">Desp</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      setIsDashboardOpen(true);
-                      localStorage.setItem('openIncomeForm', 'true');
-                    }}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors shadow-sm"
-                  >
-                    <PiggyBank className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Ganhos</span>
-                    <span className="xs:hidden">Ganhos</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => { setIsFormOpen(true); setEditingService(undefined); }}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors shadow-sm"
-                  >
-                    <Plus className="h-4 w-4 mr-1 sm:mr-2" />
-                    <span className="hidden xs:inline">Novo</span>
-                    <span className="xs:hidden">Novo</span>
+                    <Target className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Captação</span>
                   </button>
                 </div>
               </div>
@@ -567,157 +564,333 @@ function App() {
         
             {/* Status message */}
             {loadingError && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md flex justify-between items-center">
+              <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
                 <div className="flex items-start">
-                  <AlertCircle className="h-5 w-5 text-red-600 mr-2 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-red-800">Erro ao carregar os serviços</p>
-                    <p className="text-sm text-red-700">Erro ao carregar os serviços</p>
+                  <div className="flex-shrink-0">
+                    <AlertCircle className="h-5 w-5 text-red-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">
+                      {loadingError}
+                    </p>
+                    <div className="mt-2">
+                      <button
+                        onClick={clearLoadingError}
+                        className="text-sm text-red-700 font-medium underline hover:text-red-600"
+                      >
+                        Tentar novamente
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <button 
-                  onClick={clearLoadingError}
-                  className="px-4 py-2 text-sm text-white font-medium bg-red-600 hover:bg-red-700 rounded-md transition-colors"
-                >
-                  Tentar novamente
-                </button>
               </div>
             )}
             
             {/* Services table */}
-            <div className="bg-white shadow-md overflow-hidden rounded-lg border border-gray-100">
-              {/* Versão para desktop */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Cliente
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Data
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Veículo
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Serviços
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Valor
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-600 uppercase tracking-wider">
-                        Ações
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredServices.length === 0 && !loadingError ? (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                          Nenhum serviço cadastrado. Clique no botão "Novo" para começar.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredServices.map((service) => {
-                        // Determinar a classe de cor da linha com base no status
-                        let rowClass = "hover:bg-gray-50 transition-colors";
-                        if (service.status === 'orcamento') {
-                          rowClass = "bg-blue-50 hover:bg-blue-100 transition-colors";
-                        } else if (service.status === 'nao_pago') {
-                          rowClass = "bg-red-50 hover:bg-red-100 transition-colors";
-                        }
-                        
-                        // Renderizar o indicador de status
-                        const renderStatusBadge = (status?: string) => {
-                          if (!status) return null;
-                          
-                          let badgeClass = '';
-                          let statusText = '';
-                          
-                          switch (status) {
-                            case 'pago':
-                              badgeClass = 'bg-green-100 text-green-800 border-green-200';
-                              statusText = 'Pago';
-                              break;
-                            case 'nao_pago':
-                              badgeClass = 'bg-red-100 text-red-800 border-red-200';
-                              statusText = 'Não Pago';
-                              break;
-                            case 'orcamento':
-                              badgeClass = 'bg-blue-100 text-blue-800 border-blue-200';
-                              statusText = 'Orçamento';
-                              break;
-                            default:
-                              badgeClass = 'bg-gray-100 text-gray-800 border-gray-200';
-                              statusText = status;
-                          }
-                          
-                          return (
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
-                              {statusText}
-                            </span>
-                          );
-                        };
-                        
-                        return (
-                          <tr key={service.id} className={rowClass}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {service.client_name}
-                              <div className="text-xs text-gray-500">Código: {service.auth_code}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {formatLocalDate(service.service_date)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {service.car_model}
-                              <div className="text-xs font-medium">{service.car_plate}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {formatService(service)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(service.service_value)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                              {renderStatusBadge(service.status)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex justify-end space-x-2">
-                                <button
-                                  onClick={() => handleGenerateInvoice(service)}
-                                  className="bg-blue-100 p-2 rounded-md hover:bg-blue-200 transition-colors"
-                                  title="Gerar nota fiscal"
-                                >
-                                  <FileText className="w-4 h-4 text-blue-600" />
-                                </button>
-                                <button
-                                  onClick={() => handleEdit(service)}
-                                  className="bg-green-100 p-2 rounded-md hover:bg-green-200 transition-colors"
-                                  title="Editar"
-                                >
-                                  <Pencil className="w-4 h-4 text-green-600" />
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(service.id)}
-                                  className="bg-red-100 p-2 rounded-md hover:bg-red-200 transition-colors"
-                                  title="Excluir"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-600" />
-                                </button>
-                              </div>
+            {loadingError ? (
+              <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <AlertCircle className="h-5 w-5 text-red-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">
+                      {loadingError}
+                    </p>
+                    <div className="mt-2">
+                      <button
+                        onClick={clearLoadingError}
+                        className="text-sm text-red-700 font-medium underline hover:text-red-600"
+                      >
+                        Tentar novamente
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              viewMode === 'table' ? (
+                // Visualização em tabela (atual)
+                <div className="mt-4">
+                  <div className="responsive-table hidden md:block">
+                    <table className="w-full table-fixed divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[13%] sm:w-[13%]">
+                            Cliente
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[8%] sm:w-[8%]">
+                            Data
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[13%] sm:w-[13%]">
+                            Veículo
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-full sm:w-[18%]">
+                            Serviço
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%] sm:w-[10%]">
+                            Valor
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%] sm:w-[10%]">
+                            Status
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%] sm:w-[10%]">
+                            Progresso
+                          </th>
+                          <th scope="col" className="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[18%] sm:w-[18%]">
+                            Ações
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {getCurrentPageServices().length === 0 && !loadingError ? (
+                          <tr>
+                            <td colSpan={8} className="px-3 py-8 text-center text-gray-500">
+                              Nenhum serviço cadastrado. Clique no botão "Novo" para começar.
                             </td>
                           </tr>
-                        );
-                      })
+                        ) : (
+                          getCurrentPageServices().map((service) => {
+                            // Determinar a classe de cor da linha com base no status
+                            let rowClass = "hover:bg-gray-50 transition-colors";
+                            if (service.status === 'orcamento') {
+                              rowClass = "bg-blue-50 hover:bg-blue-100 transition-colors";
+                            } else if (service.status === 'nao_pago') {
+                              rowClass = "bg-red-50 hover:bg-red-100 transition-colors";
+                            }
+                            
+                            // Renderizar o indicador de status
+                            const renderStatusBadge = (status?: string) => {
+                              if (!status) return null;
+                              
+                              let badgeClass = '';
+                              let statusText = '';
+                              
+                              switch (status) {
+                                case 'pago':
+                                  badgeClass = 'bg-green-100 text-green-800 border-green-200';
+                                  statusText = 'Pago';
+                                  break;
+                                case 'nao_pago':
+                                  badgeClass = 'bg-red-100 text-red-800 border-red-200';
+                                  statusText = 'Não Pago';
+                                  break;
+                                case 'orcamento':
+                                  badgeClass = 'bg-blue-100 text-blue-800 border-blue-200';
+                                  statusText = 'Orçamento';
+                                  break;
+                                default:
+                                  badgeClass = 'bg-gray-100 text-gray-800 border-gray-200';
+                                  statusText = status;
+                              }
+                              
+                              return (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                                  {statusText}
+                                </span>
+                              );
+                            };
+                            
+                            // Renderizar o indicador de status de conclusão
+                            const renderCompletionBadge = (status?: string) => {
+                              if (!status) return null;
+                              
+                              let badgeClass = '';
+                              let statusText = '';
+                              
+                              switch (status) {
+                                case 'concluido':
+                                  badgeClass = 'bg-green-100 text-green-800 border-green-200';
+                                  statusText = 'Concluído';
+                                  break;
+                                case 'em_andamento':
+                                  badgeClass = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                                  statusText = 'Em Andamento';
+                                  break;
+                                case 'nao_iniciado':
+                                  badgeClass = 'bg-gray-100 text-gray-800 border-gray-200';
+                                  statusText = 'Não Iniciado';
+                                  break;
+                                default:
+                                  badgeClass = 'bg-gray-100 text-gray-800 border-gray-200';
+                                  statusText = status;
+                              }
+                              
+                              return (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                                  {statusText}
+                                </span>
+                              );
+                            };
+                            
+                            return (
+                              <tr key={service.id} className={rowClass}>
+                                <td className="px-2 py-4 text-sm font-medium text-gray-900 break-words">
+                                  {service.client_name}
+                                  <div className="text-xs text-gray-500">Código: {service.auth_code}</div>
+                                </td>
+                                <td className="px-2 py-4 text-sm text-gray-500 break-words">
+                                  {formatLocalDate(service.service_date)}
+                                </td>
+                                <td className="px-2 py-4 text-sm text-gray-500 break-words">
+                                  {service.car_model}
+                                  <div className="text-xs font-medium">{service.car_plate}</div>
+                                </td>
+                                <td className="px-2 py-4 text-sm text-gray-500 break-words">
+                                  {formatService(service)}
+                                </td>
+                                <td className="px-2 py-4 text-sm font-medium text-gray-900 break-words">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(service.service_value)}
+                                </td>
+                                <td className="px-2 py-4 text-sm">
+                                  {renderStatusBadge(service.status)}
+                                </td>
+                                <td className="px-2 py-4 text-sm">
+                                  {renderCompletionBadge(service.completion_status)}
+                                </td>
+                                <td className="px-2 py-4 text-sm font-medium">
+                                  <div className="flex justify-end items-center space-x-3 md:space-x-3">
+                                    {service.status === 'nao_pago' && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleMarkAsPaid(service.id);
+                                        }}
+                                        className="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded flex items-center transition-colors touch-action-button my-1"
+                                        title="Marcar como pago"
+                                      >
+                                        <DollarSign className="w-4 h-4 mr-1" />
+                                        <span>Pagar</span>
+                                      </button>
+                                    )}
+                                    <div className="flex space-x-2">
+                                      <button
+                                        onClick={() => handleGenerateInvoice(service)}
+                                        className="bg-blue-100 p-2 rounded-md hover:bg-blue-200 transition-colors touch-action-button my-1"
+                                        title="Gerar nota fiscal"
+                                      >
+                                        <FileText className="w-4 h-4 text-blue-600" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleEdit(service)}
+                                        className="bg-green-100 p-2 rounded-md hover:bg-green-200 transition-colors touch-action-button my-1"
+                                        title="Editar"
+                                      >
+                                        <Pencil className="w-4 h-4 text-green-600" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDelete(service.id)}
+                                        className="bg-red-100 p-2 rounded-md hover:bg-red-200 transition-colors touch-action-button my-1"
+                                        title="Excluir"
+                                      >
+                                        <Trash2 className="w-4 h-4 text-red-600" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Visualização em cartões para dispositivos móveis */}
+                  <div className="md:hidden space-y-4">
+                    {getCurrentPageServices().length === 0 && !loadingError ? (
+                      <div className="bg-white rounded-lg p-8 text-center text-gray-500 shadow-sm">
+                        Nenhum serviço cadastrado. Clique no botão "Novo" para começar.
+                      </div>
+                    ) : (
+                      getCurrentPageServices().map((service) => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          onMarkAsPaid={handleMarkAsPaid}
+                          onGenerateInvoice={handleGenerateInvoice}
+                          formatService={formatService}
+                        />
+                      ))
                     )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </div>
+
+                  {/* Controles de paginação */}
+                  {filteredServices.length > servicesPerPage && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between mt-4 bg-white px-4 py-3 rounded-lg shadow-sm border border-gray-200">
+                      <div className="text-sm text-gray-500 mb-3 sm:mb-0">
+                        Mostrando {getCurrentPageServices().length} de {filteredServices.length} serviços
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1}
+                          className={`p-2 rounded touch-action-button ${currentPage === 1 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-100'}`}
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        
+                        <div className="flex items-center space-x-1 overflow-x-auto">
+                          {Array.from({ length: Math.min(5, Math.ceil(filteredServices.length / servicesPerPage)) }, (_, i) => {
+                            // Lógica para mostrar páginas ao redor da atual
+                            let pageNum = i + 1;
+                            const totalPages = Math.ceil(filteredServices.length / servicesPerPage);
+                            
+                            if (totalPages > 5) {
+                              if (currentPage <= 3) {
+                                // No início, mostrar 1, 2, 3, 4, 5
+                                pageNum = i + 1;
+                              } else if (currentPage >= totalPages - 2) {
+                                // No final, mostrar últimas 5 páginas
+                                pageNum = totalPages - 4 + i;
+                              } else {
+                                // No meio, mostrar 2 antes e 2 depois da atual
+                                pageNum = currentPage - 2 + i;
+                              }
+                            }
+                            
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setCurrentPage(pageNum)}
+                                className={`min-w-[36px] h-9 px-3 py-1 rounded touch-action-button ${
+                                  currentPage === pageNum
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredServices.length / servicesPerPage)))}
+                          disabled={currentPage === Math.ceil(filteredServices.length / servicesPerPage)}
+                          className={`p-2 rounded touch-action-button ${
+                            currentPage === Math.ceil(filteredServices.length / servicesPerPage)
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-blue-600 hover:bg-blue-100'
+                          }`}
+                        >
+                          <ChevronRight className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Visualização Kanban
+                <KanbanBoard 
+                  services={filteredServices}
+                  onServiceSelect={handleEdit}
+                  onServicesUpdate={fetchServices}
+                />
+              )
+            )}
           </>
         )}
       </main>
@@ -754,6 +927,24 @@ function App() {
           isOpen={isSourceAnalyticsOpen}
           onClose={() => setIsSourceAnalyticsOpen(false)}
           userId={user.id}
+        />
+      )}
+      
+      {isQuotationsOpen && (
+        <QuotationsList
+          isOpen={isQuotationsOpen}
+          onClose={() => setIsQuotationsOpen(false)}
+          onEdit={handleEdit}
+          tenant_id={user.id}
+        />
+      )}
+      
+      {isCompletedServicesOpen && (
+        <CompletedServicesList
+          isOpen={isCompletedServicesOpen}
+          onClose={() => setIsCompletedServicesOpen(false)}
+          onEdit={handleEdit}
+          tenant_id={user.id}
         />
       )}
     </div>

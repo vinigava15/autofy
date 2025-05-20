@@ -284,3 +284,43 @@ Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICE
 ---
 
 Desenvolvido com ❤️ e muito ☕ 
+
+# Análise de Captação de Clientes - AutoFy
+
+## Funcionalidades Implementadas
+
+### 1. Acesso à Análise de Captação
+
+Foi adicionado um botão "Captação" na interface principal, que abre o componente de análise de origem dos clientes (ClientSourceAnalytics). Este componente permite:
+
+- Visualizar em gráficos de pizza ou barras a distribuição das origens dos clientes
+- Analisar o valor médio de serviço por canal de captação
+- Exportar relatórios em CSV para análises mais detalhadas
+- Filtrar por diferentes períodos (mês atual, trimestre, ano ou período personalizado)
+
+### 2. Texto Explicativo
+
+Foi adicionada uma seção informativa ao componente ClientSourceAnalytics que:
+
+- Explica o propósito da ferramenta para análise de marketing
+- Orienta sobre como utilizar os dados para direcionar investimentos em marketing
+- Informa sobre a possibilidade de exportação de relatórios
+
+## Como Usar
+
+1. Clique no botão "Captação" na barra de navegação principal
+2. Selecione o período desejado (mês atual, trimestre, ano ou personalizado)
+3. Escolha entre visualização em gráfico de pizza ou barras
+4. Analise os cartões de métricas que mostram:
+   - Total de clientes
+   - Valor total
+   - Origem mais popular
+   - Origem com maior valor médio
+5. Exporte os dados para CSV clicando no botão "Exportar CSV"
+
+## Benefícios
+
+- Identificação dos canais de marketing mais eficazes
+- Análise de ROI por canal de captação
+- Otimização de estratégias de marketing com base em dados reais
+- Rastreamento da evolução dos canais ao longo do tempo 

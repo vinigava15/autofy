@@ -32,6 +32,19 @@ body {
   .btn-secondary {
     @apply px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 w-full sm:w-auto transition-colors;
   }
+
+  /* Classes responsivas adicionais */
+  .responsive-table {
+    @apply w-full overflow-x-auto rounded-lg shadow border border-gray-200;
+  }
+
+  .responsive-card {
+    @apply bg-white rounded-lg shadow p-4 border border-gray-200 mb-4 transition-all hover:shadow-md;
+  }
+  
+  .touch-action-button {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
 }
 
 /* Variável para breakpoint xs customizado */
@@ -71,11 +84,114 @@ body {
   /* Prevenir overflow horizontal e melhorar legibilidade */
   main {
     overflow-x: hidden;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
   }
   
   /* Melhorar tamanho da fonte em dispositivos móveis */
   body {
     font-size: 16px;
+  }
+
+  /* Ajustes para facilitar interação em telas pequenas */
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.3;
+  }
+
+  /* Maior espaçamento entre elementos interativos */
+  td, th {
+    padding: 12px 8px !important;
+  }
+
+  /* Botões de ação com maior área de toque */
+  .action-button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px !important;
+  }
+
+  /* Melhorar espaçamento em contêineres */
+  .px-4 {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* Facilitar leitura de textos */
+  .text-xs {
+    font-size: 13px !important;
+  }
+
+  /* Espaçamento entre grupos de botões */
+  .space-x-2 > * + * {
+    margin-left: 8px !important;
+  }
+}
+
+/* Estilos específicos para tabelas responsivas em dispositivos móveis */
+@media (max-width: 768px) {
+  /* Transformar tabelas em visualização de cartão em telas pequenas */
+  .mobile-card-view thead {
+    display: none;
+  }
+
+  .mobile-card-view tbody tr {
+    display: block;
+    margin-bottom: 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .mobile-card-view td {
+    display: flex;
+    justify-content: space-between;
+    text-align: right;
+    padding: 12px 16px !important;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .mobile-card-view td:last-child {
+    border-bottom: none;
+  }
+
+  .mobile-card-view td:before {
+    content: attr(data-label);
+    font-weight: 500;
+    color: #4b5563;
+    text-align: left;
+  }
+
+  /* Ajustes específicos para botões em tabelas móveis */
+  .mobile-card-view .action-btn-group {
+    justify-content: center !important;
+    padding: 12px !important;
+  }
+  
+  /* Melhorias para o cartão de ações */
+  .mobile-card-view .action-btn-group {
+    flex-direction: column;
+    align-items: flex-start;
+    padding-top: 20px !important;
+  }
+  
+  .mobile-card-view .action-btn-group:before {
+    align-self: flex-start;
+    margin-bottom: 12px;
+  }
+  
+  .mobile-card-view .action-btn-group > div {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
+  }
+  
+  /* Botões de ação maiores e mais fáceis de tocar */
+  .mobile-card-view .touch-action-button {
+    min-height: 48px;
+    min-width: 48px;
+    padding: 12px !important;
+    margin: 4px !important;
   }
 }
 

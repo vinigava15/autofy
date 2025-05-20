@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { X, Download, PieChart, BarChart, Calendar, DollarSign, Target } from 'lucide-react';
-import { startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear, format, subMonths, subYears, parseISO } from 'date-fns';
-import { formatCurrency, formatLocalDate } from '../utils/formatters';
-import { ptBR } from 'date-fns/locale';
-import toast from 'react-hot-toast';
+import { startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear, format, subMonths, parseISO } from 'date-fns';
+import { formatCurrency } from '../utils/formatters';
 import { 
   ResponsiveContainer, 
   PieChart as RechartsPieChart, 
@@ -25,12 +23,6 @@ interface ClientSourceRecord {
   count: number;
   totalValue: number;
   averageValue: number;
-}
-
-interface Period {
-  label: string;
-  startDate: Date;
-  endDate: Date;
 }
 
 interface ClientSourceAnalyticsProps {
@@ -129,7 +121,8 @@ export function ClientSourceAnalytics({ isOpen, onClose, userId }: ClientSourceA
         .select('client_source, service_value, status')
         .eq('tenant_id', userId)
         .gte('service_date', startDate)
-        .lte('service_date', endDate);
+        .lte('service_date', endDate)
+        .order('service_date', { ascending: false });
 
       if (error) throw error;
 
@@ -224,19 +217,17 @@ export function ClientSourceAnalytics({ isOpen, onClose, userId }: ClientSourceA
             data={sourceData}
             cx="50%"
             cy="50%"
-            labelLine={true}
-            outerRadius={150}
+            labelLine={false}
+            outerRadius={80}
             fill="#8884d8"
             dataKey="count"
-            nameKey="source"
-            label={({ source, percent }) => `${SOURCE_LABELS[source]} (${(percent * 100).toFixed(0)}%)`}
           >
-            {sourceData.map((entry, index) => (
+            {sourceData.map((_, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
           <Tooltip 
-            formatter={(value, name, props) => [value, 'Quantidade']}
+            formatter={(value) => [value, 'Quantidade']}
             labelFormatter={(value) => SOURCE_LABELS[value as string]}
           />
         </RechartsPieChart>
@@ -294,7 +285,6 @@ export function ClientSourceAnalytics({ isOpen, onClose, userId }: ClientSourceA
     // Calcular totais
     const totalClients = sourceData.reduce((sum, item) => sum + item.count, 0);
     const totalValue = sourceData.reduce((sum, item) => sum + item.totalValue, 0);
-    const overallAverage = totalValue / totalClients;
 
     // Encontrar origem mais popular
     const mostPopular = sourceData.reduce((prev, current) => 
@@ -437,6 +427,27 @@ export function ClientSourceAnalytics({ isOpen, onClose, userId }: ClientSourceA
             </div>
           ) : (
             <div>
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded-r-md">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <Target className="h-5 w-5 text-blue-500" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-blue-700">
+                      Esta ferramenta permite analisar a <span className="font-semibold">origem dos seus clientes</span>, identificando 
+                      quais canais de marketing estão trazendo mais resultados.
+                    </p>
+                    <p className="text-sm text-blue-700 mt-2">
+                      Utilize os gráficos para visualizar a distribuição de clientes por origem e valores médios, 
+                      ajudando a direcionar seus investimentos em marketing de forma mais eficiente.
+                    </p>
+                    <p className="text-sm text-blue-700 mt-2">
+                      Você pode exportar os relatórios em CSV para análises mais detalhadas ou compartilhamento com sua equipe.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div>
                   <h3 className="text-lg font-medium text-gray-900 mb-1">

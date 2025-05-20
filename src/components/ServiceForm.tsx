@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Service, CatalogService, ServiceStatus, ClientSource } from '../types';
+import { Service, CatalogService, ServiceStatus, ClientSource, CompletionStatus, VehiclePhoto } from '../types';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { 
@@ -15,8 +15,12 @@ import {
   Tag,
   X,
   Save,
-  FileText 
+  FileText,
+  Loader2,
+  Clock,
+  Plus
 } from 'lucide-react';
+import { PhotoUpload } from './PhotoUpload';
 
 interface ServiceFormProps {
   service?: Service;
@@ -42,6 +46,8 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
     service_value: service?.service_value || 0,
     status: service?.status || 'pago' as ServiceStatus,
     client_source: service?.client_source || '' as ClientSource,
+    completion_status: service?.completion_status || 'nao_iniciado' as CompletionStatus,
+    observacoes: service?.observacoes || '',
   });
   
   // Estado para armazenar os IDs dos serviços selecionados
@@ -62,13 +68,18 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [catalogServices, setCatalogServices] = useState<CatalogService[]>([]);
+  const [photos, setPhotos] = useState<VehiclePhoto[]>(service?.photos || []);
+  const [loadingPhotos, setLoadingPhotos] = useState(false);
 
   // Buscar serviços do catálogo
   useEffect(() => {
     if (isOpen) {
       fetchCatalogServices();
+      if (service?.id) {
+        fetchPhotos(service.id);
+      }
     }
-  }, [isOpen, tenant_id]);
+  }, [isOpen, tenant_id, service?.id]);
 
   // Quando um serviço é selecionado/desselecionado, atualizar o valor total dos serviços
   useEffect(() => {
@@ -114,6 +125,41 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
     } catch (error) {
       console.error('Erro ao buscar serviços do catálogo:', error);
       toast.error('Erro ao carregar os serviços do catálogo');
+    }
+  };
+
+  /**
+   * Busca as fotos associadas ao serviço
+   */
+  const fetchPhotos = async (serviceId: string) => {
+    try {
+      setLoadingPhotos(true);
+      
+      const { data, error } = await supabase
+        .from('vehicle_photos')
+        .select('*')
+        .eq('service_id', serviceId)
+        .eq('tenant_id', tenant_id);
+        
+      if (error) {
+        console.error('Erro ao buscar fotos do veículo:', error);
+        return;
+      }
+      
+      if (data) {
+        const formattedPhotos: VehiclePhoto[] = data.map(photo => ({
+          id: photo.id,
+          url: photo.url,
+          description: photo.description,
+          created_at: photo.created_at
+        }));
+        
+        setPhotos(formattedPhotos);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar fotos do veículo:', error);
+    } finally {
+      setLoadingPhotos(false);
     }
   };
 
@@ -211,7 +257,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
   const testColumnExists = async () => {
     try {
       // Tentar obter um registro para ver se a coluna existe
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('services')
         .select('selected_services')
         .limit(1);
@@ -248,72 +294,26 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
         service_date: formattedDate,
         tenant_id: tenant_id,
         updated_at: new Date().toISOString(),
-        status: formData.status,
-        selected_services: updatedSelectedServices,
-        client_source: formData.client_source || null
+        selected_services: updatedSelectedServices
       };
       
-      // Registrando para depuração
-      console.log('Atualizando serviço com dados:', updateData);
+      console.log('Enviando dados de atualização:', updateData);
       
+      // Atualizar o serviço
       const { error } = await supabase
         .from('services')
         .update(updateData)
-        .eq('id', serviceId);
-      
+        .eq('id', serviceId)
+        .eq('tenant_id', tenant_id);
+        
       if (error) {
-        // Tentar novamente sem o campo selected_services se der erro
-        if (error.message?.includes("selected_services")) {
-          console.warn("Tentando atualizar sem o campo selected_services");
-          const { error: retryError } = await supabase
-            .from('services')
-            .update({
-              ...formData,
-              service_id: primaryServiceId,
-              car_plate: formData.car_plate.toUpperCase(),
-              service_date: formattedDate,
-              tenant_id: tenant_id,
-              updated_at: new Date().toISOString(),
-              status: formData.status,
-              client_source: formData.client_source || null
-            })
-            .eq('id', serviceId);
-            
-          if (retryError) throw retryError;
-          
-          // Exibir mensagem para o usuário executar o script SQL
-          toast.warning("Para salvar múltiplos serviços, execute o script SQL que adiciona o suporte a múltiplos serviços");
-          toast.info("Comando: supabase sql < supabase/add-selected-services.sql");
-        } else if (error.message?.includes("status")) {
-          console.warn("Tentando atualizar sem o campo status");
-          // Se o erro for relacionado ao campo status (coluna não existe), tentar sem ele
-          const { error: retryError } = await supabase
-            .from('services')
-            .update({
-              ...formData,
-              service_id: primaryServiceId,
-              car_plate: formData.car_plate.toUpperCase(),
-              service_date: formattedDate,
-              tenant_id: tenant_id,
-              updated_at: new Date().toISOString(),
-              // Remove o campo status
-              client_source: formData.client_source || null
-            })
-            .eq('id', serviceId);
-          
-          if (retryError) throw retryError;
-          
-          // Se conseguiu atualizar sem o campo status, exibe aviso
-          toast.warning("Atualize o banco de dados para suportar status de serviços");
-        } else {
-          throw error;
-        }
+        console.error('Erro ao atualizar serviço:', error);
+        throw new Error(`Erro ao atualizar serviço: ${error.message}`);
       }
       
       toast.success('Serviço atualizado com sucesso!');
     } catch (error) {
-      console.error('Erro ao atualizar serviço:', error);
-      toast.error('Erro ao atualizar o serviço');
+      console.error('Erro detalhado ao atualizar serviço:', error);
       throw error;
     }
   };
@@ -323,7 +323,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
    */
   const createNewService = async (formattedDate: string, primaryServiceId: string) => {
     try {
-      // Gerar código de autenticação randomico
+      // Gerar código de autenticação aleatório
       const authCode = `AC${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       
       // Garantir que o array selectedServices inclui pelo menos primaryServiceId
@@ -332,104 +332,94 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
         updatedSelectedServices.unshift(primaryServiceId);
       }
       
-      // Criar objeto base para inserção
-      const insertData = {
-        client_name: formData.client_name,
-        client_phone: formData.client_phone,
-        service_date: formattedDate,
-        car_plate: formData.car_plate.toUpperCase(),
-        car_model: formData.car_model,
-        service_value: formData.service_value,
+      // Preparar os dados para inserção
+      const newService = {
+        ...formData,
         service_id: primaryServiceId,
-        auth_code: authCode,
+        car_plate: formData.car_plate.toUpperCase(),
+        service_date: formattedDate,
         tenant_id: tenant_id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        status: formData.status,
-        selected_services: updatedSelectedServices,
-        client_source: formData.client_source || null
+        auth_code: authCode,
+        selected_services: updatedSelectedServices
       };
       
-      // Registrando para depuração
-      console.log('Criando serviço com dados:', insertData);
+      console.log('Enviando dados para criação:', newService);
       
-      const { error, data } = await supabase
+      // Inserir o novo serviço
+      const { data: createdService, error } = await supabase
         .from('services')
-        .insert(insertData)
+        .insert(newService)
         .select()
         .single();
-      
+        
       if (error) {
-        // Se o erro for relacionado à coluna selected_services, tentar sem ela
-        if (error.message?.includes("selected_services")) {
-          console.warn("Tentando inserir sem o campo selected_services");
-          
-          const insertDataWithoutSelectedServices = { 
-            ...insertData 
-          };
-          delete insertDataWithoutSelectedServices.selected_services;
-          
-          const { error: retryError } = await supabase
-            .from('services')
-            .insert(insertDataWithoutSelectedServices)
-            .single();
-            
-          if (retryError) throw retryError;
-          
-          // Exibir mensagem para o usuário executar o script SQL
-          toast.warning("Para salvar múltiplos serviços, execute o script SQL que adiciona o suporte a múltiplos serviços");
-          toast.info("Comando: supabase sql < supabase/add-selected-services.sql");
-        } else if (error.message?.includes("status")) {
-          console.warn("Tentando inserir sem o campo status");
-          
-          // Se o erro for relacionado ao campo status (coluna não existe), tentar sem ele
-          const insertDataWithoutStatus = { 
-            ...insertData 
-          };
-          delete insertDataWithoutStatus.status;
-          
-          const { error: retryError } = await supabase
-            .from('services')
-            .insert(insertDataWithoutStatus)
-            .single();
-            
-          if (retryError) throw retryError;
-          
-          // Se conseguiu inserir sem o campo status, exibe aviso
-          toast.warning("Atualize o banco de dados para suportar status de serviços");
-        } else {
-          throw error;
-        }
+        console.error('Erro ao criar serviço:', error);
+        throw new Error(`Erro ao criar serviço: ${error.message}`);
       }
       
-      toast.success('Serviço cadastrado com sucesso!');
+      // Verificar se temos fotos para associar ao novo serviço
+      if (photos.length > 0 && createdService?.id) {
+        await associatePhotosToService(createdService.id);
+      }
+      
+      toast.success('Serviço criado com sucesso!');
     } catch (error) {
-      console.error('Erro ao criar serviço:', error);
-      toast.error('Erro ao cadastrar o serviço');
+      console.error('Erro detalhado ao criar serviço:', error);
       throw error;
     }
+  };
+
+  /**
+   * Associa fotos existentes ao serviço recém-criado
+   */
+  const associatePhotosToService = async (serviceId: string) => {
+    try {
+      for (const photo of photos) {
+        await supabase
+          .from('vehicle_photos')
+          .update({
+            service_id: serviceId
+          })
+          .eq('id', photo.id)
+          .eq('tenant_id', tenant_id);
+      }
+    } catch (error) {
+      console.error('Erro ao associar fotos ao serviço:', error);
+      // Não interrompe o fluxo, apenas loga o erro
+    }
+  };
+
+  /**
+   * Handler para atualizar as fotos do serviço
+   */
+  const handlePhotosChange = (updatedPhotos: VehiclePhoto[]) => {
+    setPhotos(updatedPhotos);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className={`fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center z-50 
-      ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'} 
-      transition-opacity duration-300`}>
-      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {service?.id ? 'Editar Serviço' : 'Novo Serviço'}
+    <div className={`fixed inset-0 z-50 ${isOpen ? 'flex' : 'hidden'} items-center justify-center`}>
+      {/* Overlay para efeito de foco */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
+      
+      {/* Conteúdo do formulário */}
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto relative z-10 m-4">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-medium text-gray-900">
+            {service ? 'Editar Serviço' : 'Novo Serviço'}
           </h2>
           <button 
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            className="text-gray-400 hover:text-gray-500 focus:outline-none"
           >
-            <X size={24} />
+            <X className="w-5 h-5" />
           </button>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+        
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Nome do Cliente */}
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
             <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
@@ -444,7 +434,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
             />
           </div>
-
+          
           {/* Telefone do Cliente */}
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
             <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
@@ -500,25 +490,32 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
               <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
-                <DollarSign className="w-4 h-4 mr-1 text-emerald-600" />
-                Valor Total dos Serviços
+                <DollarSign className="w-4 h-4 mr-1 text-blue-600" />
+                Valor Total
               </label>
-              <input
-                type="number"
-                required
-                readOnly
-                step="0.01"
-                min="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 focus:outline-none"
-                value={formData.service_value}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Valor calculado a partir dos serviços selecionados
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-500 sm:text-sm">R$</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-full pl-10 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value={formData.service_value}
+                  onChange={(e) => setFormData({ ...formData, service_value: parseFloat(e.target.value) })}
+                  readOnly={selectedServices.length > 0}
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {selectedServices.length > 0 
+                  ? "Valor calculado automaticamente com base nos serviços selecionados." 
+                  : "Informe o valor manualmente ou selecione serviços abaixo."}
               </p>
             </div>
           </div>
-
-          {/* Dados do Veículo */}
+          
+          {/* Informações do Veículo */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
               <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
@@ -553,7 +550,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
             <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
               <Tag className="w-4 h-4 mr-1 text-blue-600" />
-              Status do Serviço *
+              Status Financeiro
             </label>
             <div className="grid grid-cols-3 gap-3">
               <label className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer transition-colors
@@ -600,33 +597,85 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               </label>
             </div>
           </div>
-
-          {/* Serviços - Checkboxes */}
+          
+          {/* NOVO: Status de Conclusão do Serviço */}
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
             <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <Clock className="w-4 h-4 mr-1 text-blue-600" />
+              Status do Serviço
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              <label className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer transition-colors
+                ${formData.completion_status === 'concluido' 
+                  ? 'bg-green-100 border-green-500 text-green-800' 
+                  : 'bg-white border-gray-300 hover:bg-gray-50'}`}>
+                <input
+                  type="radio"
+                  name="completion_status"
+                  value="concluido"
+                  checked={formData.completion_status === 'concluido'}
+                  onChange={() => setFormData({...formData, completion_status: 'concluido'})}
+                  className="sr-only"
+                />
+                <span className="font-medium">Concluído</span>
+              </label>
+              <label className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer transition-colors
+                ${formData.completion_status === 'em_andamento' 
+                  ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
+                  : 'bg-white border-gray-300 hover:bg-gray-50'}`}>
+                <input
+                  type="radio"
+                  name="completion_status"
+                  value="em_andamento"
+                  checked={formData.completion_status === 'em_andamento'}
+                  onChange={() => setFormData({...formData, completion_status: 'em_andamento'})}
+                  className="sr-only"
+                />
+                <span className="font-medium">Em Andamento</span>
+              </label>
+              <label className={`flex items-center justify-center p-3 border rounded-lg cursor-pointer transition-colors
+                ${formData.completion_status === 'nao_iniciado' 
+                  ? 'bg-gray-100 border-gray-500 text-gray-800' 
+                  : 'bg-white border-gray-300 hover:bg-gray-50'}`}>
+                <input
+                  type="radio"
+                  name="completion_status"
+                  value="nao_iniciado"
+                  checked={formData.completion_status === 'nao_iniciado'}
+                  onChange={() => setFormData({...formData, completion_status: 'nao_iniciado'})}
+                  className="sr-only"
+                />
+                <span className="font-medium">Não Iniciado</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Serviços do Catálogo */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
               <Bookmark className="w-4 h-4 mr-1 text-blue-600" />
-              Selecione os Serviços
+              Serviços do Catálogo
             </label>
             
             {catalogServices.length === 0 ? (
-              <div className="p-4 border border-yellow-200 rounded-md bg-yellow-50 text-yellow-700 text-sm">
-                <p className="mb-2">Nenhum serviço cadastrado no catálogo.</p>
+              <div className="text-center py-8">
+                <p className="text-gray-500 mb-2">Nenhum serviço cadastrado no catálogo.</p>
                 <button
                   type="button"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   onClick={() => {
+                    // Definir flag para abrir o catálogo
+                    localStorage.setItem('openCatalog', 'true');
+                    
+                    // Dispatch evento para notificar o App.tsx
+                    window.dispatchEvent(new Event('openCatalog'));
+                    
+                    // Fechar o formulário atual
                     onClose();
-                    // Usando setTimeout para garantir que o modal atual seja fechado antes de abrir o catálogo
-                    setTimeout(() => {
-                      // Aqui precisamos chamar a função que abre o catálogo
-                      // Como não temos acesso direto, uma alternativa é usar localStorage para comunicação
-                      localStorage.setItem('openCatalog', 'true');
-                      // Disparar um evento customizado para notificar a aplicação
-                      window.dispatchEvent(new CustomEvent('openCatalog'));
-                    }, 100);
                   }}
-                  className="mt-1 text-blue-600 hover:text-blue-800 font-medium text-sm underline"
                 >
-                  Cadastrar novo serviço no catálogo
+                  <Plus className="w-4 h-4 mr-1" />
+                  Adicionar ao Catálogo
                 </button>
               </div>
             ) : (
@@ -691,34 +740,65 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
             )}
           </div>
 
+          {/* Observações */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <FileText className="w-4 h-4 mr-1 text-blue-600" />
+              Observações (opcional)
+            </label>
+            <textarea
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Informações adicionais sobre o serviço..."
+              value={formData.observacoes || ''}
+              onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
+            ></textarea>
+          </div>
+          
+          {/* NOVO: Upload de Fotos do Veículo */}
+          {service?.id && (
+            <div>
+              {loadingPhotos ? (
+                <div className="flex items-center justify-center p-4">
+                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                  <span className="ml-2 text-gray-600">Carregando fotos...</span>
+                </div>
+              ) : (
+                <PhotoUpload 
+                  serviceId={service.id} 
+                  tenantId={tenant_id} 
+                  existingPhotos={photos}
+                  onPhotosChange={handlePhotosChange}
+                />
+              )}
+            </div>
+          )}
+
           {/* Botões de Ação */}
-          <div className="flex flex-col-reverse sm:flex-row sm:justify-end space-y-2 space-y-reverse sm:space-y-0 sm:space-x-3 pt-4">
+          <div className="flex justify-end space-x-3 border-t border-gray-200 pt-4 mt-6">
             <button
               type="button"
+              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 w-full sm:w-auto transition-colors shadow-sm"
               disabled={isSubmitting}
             >
               Cancelar
             </button>
             <button
               type="submit"
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center"
               disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 border border-blue-600 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 w-full sm:w-auto transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-2 sm:mb-0 shadow-sm flex items-center justify-center"
             >
               {isSubmitting ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  {service ? 'Atualizando...' : 'Cadastrando...'}
-                </span>
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
               ) : (
-                <span className="flex items-center">
-                  <Save className="w-4 h-4 mr-1" />
-                  {service ? 'Atualizar' : 'Cadastrar'}
-                </span>
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Salvar
+                </>
               )}
             </button>
           </div>
