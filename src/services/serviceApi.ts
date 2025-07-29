@@ -32,14 +32,13 @@ export const fetchActiveServices = async (userId: string) => {
   if (!userId) return { services: [], error: 'Usuário não identificado' };
   
   try {
-    // Buscar serviços, excluindo orçamentos e também serviços concluídos e pagos
-    // Usamos or() para filtrar serviços que NÃO são simultaneamente pagos E concluídos
+    // Buscar todos os serviços, excluindo apenas orçamentos
+    // Filtragem adicional será feita no lado do cliente para evitar problemas com consultas complexas
     const { data: servicesData, error: servicesError } = await supabase
       .from('services')
       .select('*')
       .eq('tenant_id', userId)
       .neq('status', 'orcamento') // Não buscar orçamentos
-      .or('status.neq.pago,completion_status.neq.concluido') // Mostrar serviços que não são pagos OU não são concluídos
       .order('service_date', { ascending: false });
 
     if (servicesError) {
@@ -47,11 +46,17 @@ export const fetchActiveServices = async (userId: string) => {
       return { services: [], error: 'Erro ao carregar os serviços' };
     }
     
+    // Filtrar no lado do cliente: não mostrar serviços que são pagos E concluídos simultaneamente
+    const filteredData = (servicesData || []).filter(service => {
+      // Mostrar o serviço se ele NÃO for (pago E concluído) ao mesmo tempo
+      return !(service.status === 'pago' && service.completion_status === 'concluido');
+    });
+    
     // Array para armazenar os serviços processados
     const processedServices = [];
     
     // Para cada serviço, buscar informações adicionais
-    for (const service of servicesData || []) {
+    for (const service of filteredData) {
       const enhancedService = await enhanceServiceWithRelations(service, userId);
       processedServices.push(enhancedService);
     }

@@ -209,6 +209,37 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
     e.preventDefault();
     setIsSubmitting(true);
 
+    // Validações dos campos obrigatórios
+    if (!formData.client_name.trim()) {
+      toast.error('O nome do cliente é obrigatório');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!formData.car_plate.trim()) {
+      toast.error('A placa do carro é obrigatória');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (formData.car_plate.trim().length < 5) {
+      toast.error('A placa do carro deve ter pelo menos 5 caracteres');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!formData.car_model.trim()) {
+      toast.error('O modelo do carro é obrigatório');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (formData.car_model.trim().length < 2) {
+      toast.error('O modelo do carro deve ter pelo menos 2 caracteres');
+      setIsSubmitting(false);
+      return;
+    }
+
     // Verificar se pelo menos um serviço foi selecionado
     if (selectedServices.length === 0) {
       toast.error('Selecione pelo menos um serviço');
@@ -289,8 +320,11 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
       // Preparar os dados básicos para atualização
       const updateData = {
         ...formData,
+        client_name: formData.client_name.trim(),
+        car_plate: formData.car_plate.trim().toUpperCase(),
+        car_model: formData.car_model.trim(),
+        client_phone: formData.client_phone?.trim() || null,
         service_id: primaryServiceId,
-        car_plate: formData.car_plate.toUpperCase(),
         service_date: formattedDate,
         tenant_id: tenant_id,
         updated_at: new Date().toISOString(),
@@ -335,8 +369,11 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
       // Preparar os dados para inserção
       const newService = {
         ...formData,
+        client_name: formData.client_name.trim(),
+        car_plate: formData.car_plate.trim().toUpperCase(),
+        car_model: formData.car_model.trim(),
+        client_phone: formData.client_phone?.trim() || null,
         service_id: primaryServiceId,
-        car_plate: formData.car_plate.toUpperCase(),
         service_date: formattedDate,
         tenant_id: tenant_id,
         created_at: new Date().toISOString(),
@@ -420,12 +457,21 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
         </div>
         
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Aviso sobre campos obrigatórios */}
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
+            <p className="text-sm text-blue-800 flex items-center">
+              <Info className="w-4 h-4 mr-2" />
+              Os campos marcados com <span className="text-red-500 mx-1">*</span> são obrigatórios.
+            </p>
+          </div>
+
           {/* Nome do Cliente */}
-          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
-              <User className="w-4 h-4 mr-1 text-blue-600" />
-              Nome do Cliente
-            </label>
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                <User className="w-4 h-4 mr-1 text-blue-600" />
+                Nome do Cliente
+                <span className="text-red-500 ml-1">*</span>
+              </label>
             <input
               type="text"
               required
@@ -521,6 +567,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
                 <Car className="w-4 h-4 mr-1 text-blue-600" />
                 Placa do Carro
+                <span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 type="text"
@@ -535,6 +582,7 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
                 <Car className="w-4 h-4 mr-1 text-blue-600" />
                 Modelo do Carro
+                <span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 type="text"
