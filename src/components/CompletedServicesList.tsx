@@ -81,52 +81,73 @@ export function CompletedServicesList({ isOpen, onClose, onEdit, tenant_id }: Co
         .order('service_date', { ascending: false });
         
       if (error) {
-        console.error('Erro ao buscar serviços concluídos:', error);
         toast.error('Erro ao carregar serviços');
         return;
       }
       
-      // Processar serviços para incluir detalhes do catálogo
-      const processedServices = await Promise.all(data.map(async (service) => {
-        let catalogService = null;
-        let catalogServices: any[] = [];
-        let photos: any[] = [];
-        
-        // Buscar o serviço do catálogo correspondente, se existir
+      // Otimizar consultas para evitar N+1
+      const allServiceIds = new Set<string>();
+      const allSelectedServiceIds = new Set<string>();
+      
+      data.forEach(service => {
         if (service.service_id) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .eq('id', service.service_id)
-            .single();
-            
-          if (!catalogError && catalogData) {
-            catalogService = catalogData;
-          }
+          allServiceIds.add(service.service_id);
         }
-        
-        // Buscar todos os serviços do catálogo selecionados, se houver
-        if (service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .in('id', service.selected_services);
-            
-          if (!catalogError && catalogData) {
-            catalogServices = catalogData;
-          }
+        if (service.selected_services && Array.isArray(service.selected_services)) {
+          service.selected_services.forEach((id: string) => allSelectedServiceIds.add(id));
         }
+      });
+      
+      // Buscar serviços do catálogo em lote
+      const allIds = new Set([...allServiceIds, ...allSelectedServiceIds]);
+      let catalogServicesMap = new Map();
+      
+      if (allIds.size > 0) {
+        const { data: catalogData } = await supabase
+          .from('catalog_services')
+          .select('id, name, value')
+          .eq('tenant_id', tenant_id)
+          .in('id', Array.from(allIds));
         
-        // Buscar fotos do veículo, se houver
-        const { data: photosData, error: photosError } = await supabase
+        if (catalogData) {
+          catalogData.forEach(service_cat => {
+            catalogServicesMap.set(service_cat.id, service_cat);
+          });
+        }
+      }
+      
+      // Buscar fotos em lote
+      const serviceIds = data.map(service => service.id);
+      let photosMap = new Map();
+      
+      if (serviceIds.length > 0) {
+        const { data: photosData } = await supabase
           .from('vehicle_photos')
-          .select('id, url, description, created_at')
-          .eq('service_id', service.id)
-          .eq('tenant_id', tenant_id);
-          
-        if (!photosError && photosData) {
-          photos = photosData;
+          .select('id, url, description, created_at, service_id')
+          .eq('tenant_id', tenant_id)
+          .in('service_id', serviceIds);
+        
+        if (photosData) {
+          photosData.forEach(photo => {
+            if (!photosMap.has(photo.service_id)) {
+              photosMap.set(photo.service_id, []);
+            }
+            photosMap.get(photo.service_id).push(photo);
+          });
         }
+      }
+      
+      // Processar serviços com dados já carregados
+      const processedServices = data.map(service => {
+        const catalogService = service.service_id 
+          ? catalogServicesMap.get(service.service_id) 
+          : null;
+        
+        const catalogServices = service.selected_services 
+          ? service.selected_services.map((id: string) => catalogServicesMap.get(id)).filter(Boolean)
+          : [];
+        
+        const photos = photosMap.get(service.id) || [];
         
         return {
           ...service,
@@ -134,13 +155,13 @@ export function CompletedServicesList({ isOpen, onClose, onEdit, tenant_id }: Co
           catalog_services: catalogServices,
           photos: photos
         };
-      }));
+      });
       
       setServices(processedServices);
       setFilteredServices(processedServices);
       setCurrentPage(1);
     } catch (error) {
-      console.error('Erro ao buscar serviços concluídos:', error);
+      // Erro tratado silenciosamente
       toast.error('Erro ao carregar serviços');
     } finally {
       setLoading(false);

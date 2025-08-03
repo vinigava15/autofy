@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, X, DollarSign, Target, List, Kanban, Clock, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Pencil, Trash2, Plus, Search, PieChart, FileText, LogOut, User, Filter, AlertCircle, Bookmark, DollarSign, Target, List, Kanban, Clock, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ServiceForm } from './components/ServiceForm';
 import { FinanceDashboard } from './components/FinanceDashboard';
 import { Service } from './types';
 import { supabase } from './lib/supabase';
+import { fetchActiveServices } from './services/serviceApi';
 import toast from 'react-hot-toast';
 import { AuthPage } from './pages/AuthPage';
 import { CatalogServicePage } from './pages/CatalogServicePage';
+import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
 import { useAuth } from './contexts/AuthContext';
 import { ClientSourceAnalytics } from './components/ClientSourceAnalytics';
 import { KanbanBoard } from './components/KanbanBoard';
@@ -16,6 +18,7 @@ import { QuotationsList } from './components/QuotationsList';
 import { CompletedServicesList } from './components/CompletedServicesList';
 import { ServiceCard } from './components/ui/ServiceCard';
 import { formatService } from './utils/serviceFormatters';
+import { MobileLayout } from './components/mobile/MobileLayout';
 
 const formatLocalDate = (dateString: string) => {
   // Garantir que a data seja tratada como meio-dia UTC para evitar problemas de fuso horárioooo
@@ -42,11 +45,17 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const servicesPerPage = 10;
 
-  // Buscar o perfil do usuário
+  // Buscar o perfil do usuário com tratamento robusto de erros
   const fetchUserProfile = async () => {
-    if (!user) return;
+    if (!user?.id) return;
     
     try {
+      // Verificar se o usuário está autenticado antes de fazer a consulta
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -54,13 +63,31 @@ function App() {
         .single();
       
       if (error) {
-        console.error('Erro ao buscar perfil do usuário:', error);
+        // Se for erro 406, pode ser problema de RLS ou autenticação
+        if (error.code === 'PGRST301' || error.message.includes('406')) {
+          // Tentar novamente após um pequeno delay
+          setTimeout(() => {
+            fetchUserProfile();
+          }, 1000);
+          return;
+        }
         return;
       }
       
       setUserProfile(data);
     } catch (error) {
-      console.error('Erro ao buscar perfil:', error);
+      // Em caso de erro crítico, tentar usar dados básicos do usuário
+      if (user?.email) {
+        setUserProfile({
+          id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.full_name || 'Usuário',
+          company_name: user.user_metadata?.company_name || 'Minha Empresa',
+          phone: user.user_metadata?.phone || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
     }
   };
 
@@ -70,104 +97,23 @@ function App() {
     try {
       setLoadingError(null);
       
-      // Buscar todos os serviços, excluindo apenas orçamentos
-      // Filtragem adicional será feita no lado do cliente para evitar problemas com consultas complexas
-      const { data: servicesData, error: servicesError } = await supabase
-        .from('services')
-        .select('*')
-        .eq('tenant_id', user.id)
-        .neq('status', 'orcamento') // Não buscar orçamentos
-        .order('service_date', { ascending: false });
-
-      if (servicesError) {
-        console.error('Erro detalhado ao buscar serviços:', servicesError);
+      // Usar o novo serviço otimizado (elimina consultas N+1)
+      const { services: fetchedServices, error } = await fetchActiveServices(user.id);
+      
+      if (error) {
         toast.error('Erro ao carregar os serviços');
         setLoadingError('Erro ao carregar os serviços');
         return;
       }
       
-      // Filtrar no lado do cliente: não mostrar serviços que são pagos E concluídos simultaneamente
-      const filteredData = (servicesData || []).filter(service => {
-        // Mostrar o serviço se ele NÃO for (pago E concluído) ao mesmo tempo
-        return !(service.status === 'pago' && service.completion_status === 'concluido');
-      });
-      
-      // Array para armazenar os serviços processados
-      const processedServices = [];
-      
-      // Para cada serviço, buscar informações adicionais
-      for (const service of filteredData) {
-        let catalogService = null;
-        let catalogServices: any[] = [];
-        let photos: any[] = [];
-        
-        // Buscar o serviço do catálogo correspondente, se existir
-        if (service.service_id) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .eq('id', service.service_id)
-            .single();
-            
-          if (!catalogError && catalogData) {
-            catalogService = catalogData;
-          }
-        }
-        
-        // Buscar todos os serviços do catálogo selecionados, se houver
-        if (service.selected_services && Array.isArray(service.selected_services) && service.selected_services.length > 0) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .in('id', service.selected_services);
-            
-          if (!catalogError && catalogData) {
-            catalogServices = catalogData;
-          }
-        }
-        
-        // Buscar fotos do veículo, se houver
-        const { data: photosData, error: photosError } = await supabase
-          .from('vehicle_photos')
-          .select('id, url, description, created_at')
-          .eq('service_id', service.id)
-          .eq('tenant_id', user.id);
-          
-        if (!photosError && photosData) {
-          photos = photosData;
-        }
-        
-        // Padronizar o formato da data para evitar problemas de fuso horário
-        let standardizedDate = service.service_date;
-        
-        // Se a data não tiver o horário fixado em 12:00, ajuste para o formato padronizado
-        if (standardizedDate && !standardizedDate.includes('T12:00:00')) {
-          standardizedDate = `${standardizedDate.split('T')[0]}T12:00:00`;
-        }
-
-        // Garantir que auth_code seja uma string válida
-        const authCode = service.auth_code || `AC${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-        
-        // Adicionar o serviço processado ao array
-        processedServices.push({
-          ...service,
-          service: catalogService,
-          catalog_services: catalogServices,
-          auth_code: authCode,
-          service_date: standardizedDate,
-          photos: photos
-        });
-      }
-      
-      setServices(processedServices);
+      setServices(fetchedServices);
       
       // Iniciar mostrando todos os serviços (serão limitados pela paginação na interface)
-      setFilteredServices(processedServices);
+      setFilteredServices(fetchedServices);
       // Resetar para a primeira página quando carregar novos serviços
       setCurrentPage(1);
       
     } catch (error) {
-      console.error('Erro ao buscar serviços:', error);
       toast.error('Erro ao carregar os serviços');
       setLoadingError('Erro ao carregar os serviços. Por favor, tente novamente.');
     }
@@ -206,8 +152,29 @@ function App() {
 
   useEffect(() => {
     if (user) {
-      fetchUserProfile();
-      fetchServices();
+      // Adicionar um pequeno delay para garantir que a sessão esteja estabelecida
+      const initializeUserData = async () => {
+        try {
+          // Verificar se a sessão está ativa antes de fazer consultas
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session && session.user.id === user.id) {
+            fetchUserProfile();
+            fetchServices();
+          } else {
+            // Se não há sessão válida, tentar novamente após delay
+            setTimeout(() => {
+              initializeUserData();
+            }, 1000);
+          }
+        } catch (error) {
+          // Em caso de erro, tentar novamente após delay maior
+          setTimeout(() => {
+            initializeUserData();
+          }, 2000);
+        }
+      };
+      
+      initializeUserData();
     }
   }, [user]);
 
@@ -363,8 +330,8 @@ function App() {
     return <AuthPage />;
   }
 
-  // Interface principal padrão
-  return (
+  // Interface principal com suporte mobile
+  const desktopLayout = (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-indigo-100">
       <header className="bg-blue-600 text-white shadow py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center sticky top-0 z-10">
         <h1 className="text-lg font-semibold flex items-center">
@@ -390,91 +357,7 @@ function App() {
       
       {/* Conteúdo principal */}
       <main className="max-w-screen-2xl mx-auto px-[25px] py-8">
-        {/* Mostra Busca Avançada ou Tela Principal dependendo do estado */}
-        {isAdvancedSearchOpen ? (
-          /* Tela de Busca Avançada */
-          <div>
-            <div className="flex items-center mb-6">
-              <button 
-                onClick={() => setIsAdvancedSearchOpen(false)}
-                className="flex items-center text-blue-600 hover:text-blue-800 touch-action-button"
-              >
-                <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                <span className="text-lg font-semibold">Busca Avançada</span>
-              </button>
-            </div>
-            
-            <div className="bg-white shadow-md rounded-lg p-6 mb-6">
-              <div className="flex items-center mb-4">
-                <Search className="w-5 h-5 mr-2 text-gray-400" />
-                <h2 className="text-lg font-medium">Filtros</h2>
-                <button 
-                  className="ml-auto text-gray-500 hover:text-gray-700 flex items-center text-sm"
-                  onClick={() => {
-                    // Resetar filtros
-                  }}
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  Limpar filtros
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mês</label>
-                  <select className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                    <option>Todos os meses</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      placeholder="Buscar cliente..."
-                      className="w-full border border-gray-300 rounded-md shadow-sm pl-10 pr-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Modelo</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      placeholder="Buscar modelo..."
-                      className="w-full border border-gray-300 rounded-md shadow-sm pl-10 pr-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Placa</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      placeholder="Buscar placa..."
-                      className="w-full border border-gray-300 rounded-md shadow-sm pl-10 pr-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Loading indicator */}
-            <div className="flex justify-center py-16">
-              <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          </div>
-        ) : (
-          /* Tela Principal */
-          <>
+        {/* Tela Principal */}
             {/* Toolbar */}
             <div className="bg-white shadow-md rounded-lg mb-6 p-4 border border-gray-100">
               <div className="flex flex-col lg:flex-row justify-between items-center mb-4">
@@ -896,11 +779,38 @@ function App() {
                 />
               )
             )}
-          </>
-        )}
       </main>
       
       {/* Modais */}
+    </div>
+  );
+
+  // Renderizar interface mobile ou desktop conforme o dispositivo
+  return (
+    <>
+      <MobileLayout
+        onNewService={() => setIsFormOpen(true)}
+        onQuotations={() => setIsQuotationsOpen(true)}
+        onCompletedServices={() => setIsCompletedServicesOpen(true)}
+        onCatalog={() => setIsCatalogServiceOpen(true)}
+        onFinancial={() => setIsDashboardOpen(true)}
+        onAnalytics={() => setIsSourceAnalyticsOpen(true)}
+        onAdvancedSearch={() => setIsAdvancedSearchOpen(true)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        userProfile={userProfile}
+        onSignOut={handleLogout}
+        services={filteredServices}
+        onServiceEdit={handleEdit}
+        onServiceDelete={handleDelete}
+        onGenerateInvoice={handleGenerateInvoice}
+        onServicesUpdate={fetchServices}
+        searchTerm={searchTerm}
+        onSearchChange={filterServices}
+        desktopLayout={desktopLayout}
+      />
+
+      {/* Modais compartilhados entre mobile e desktop */}
       {isFormOpen && (
         <ServiceForm
           isOpen={isFormOpen}
@@ -952,7 +862,15 @@ function App() {
           tenant_id={user.id}
         />
       )}
-    </div>
+
+      {isAdvancedSearchOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
+            <AdvancedSearchPage onBack={() => setIsAdvancedSearchOpen(false)} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

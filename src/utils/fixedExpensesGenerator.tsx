@@ -20,7 +20,6 @@ export async function checkAndGenerateFixedExpenses(userId: string): Promise<boo
       .order('next_generation_date', { ascending: true });
       
     if (error) {
-      console.error('Erro ao buscar despesas fixas:', error);
       return false;
     }
     
@@ -29,11 +28,12 @@ export async function checkAndGenerateFixedExpenses(userId: string): Promise<boo
       return true;
     }
     
-    // Contador de despesas geradas
-    let generatedCount = 0;
-    let generatedExpenses: {description: string, value: number}[] = [];
+    // Preparar dados para inserção em lote
+    const newExpenses: any[] = [];
+    const updatesData: any[] = [];
+    const generatedExpenses: {description: string, value: number}[] = [];
     
-    // Para cada despesa fixa, gerar uma nova instância de despesa
+    // Processar todas as despesas para inserção em lote
     for (const expense of expensesToGenerate) {
       try {
         // Calcular a data da nova despesa com base no dia fixo do mês atual
@@ -59,45 +59,61 @@ export async function checkAndGenerateFixedExpenses(userId: string): Promise<boo
         // Ajustar o dia da próxima geração se necessário
         nextGenerationDate.setDate(nextDayToUse);
         
-        // Criar nova instância da despesa
-        const { error: insertError } = await supabase
-          .from('expenses')
-          .insert({
-            description: expense.description,
-            value: expense.value,
-            expense_date: formattedExpenseDate,
-            tenant_id: userId,
-            is_fixed: false, // Despesa gerada não é fixa (apenas a original)
-            original_expense_id: expense.id // Referência à despesa fixa original
-          });
-          
-        if (insertError) {
-          console.error('Erro ao gerar nova instância de despesa fixa:', insertError);
-          continue; // Continuar com a próxima despesa
-        }
+        // Adicionar à lista de novas despesas
+        newExpenses.push({
+          description: expense.description,
+          value: expense.value,
+          expense_date: formattedExpenseDate,
+          tenant_id: userId,
+          is_fixed: false,
+          original_expense_id: expense.id
+        });
         
-        // Atualizar a próxima data de geração da despesa fixa original
-        const { error: updateError } = await supabase
-          .from('expenses')
-          .update({
-            next_generation_date: format(nextGenerationDate, 'yyyy-MM-dd'),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', expense.id)
-          .eq('tenant_id', userId);
-          
-        if (updateError) {
-          console.error('Erro ao atualizar próxima data de geração da despesa fixa:', updateError);
-          continue;
-        }
+        // Adicionar à lista de atualizações
+        updatesData.push({
+          id: expense.id,
+          next_generation_date: format(nextGenerationDate, 'yyyy-MM-dd'),
+          updated_at: new Date().toISOString()
+        });
         
-        generatedCount++;
         generatedExpenses.push({ 
           description: expense.description, 
           value: expense.value 
         });
       } catch (err) {
-        console.error('Erro ao processar despesa fixa:', err);
+        // Continuar processamento mesmo com erro
+        continue;
+      }
+    }
+    
+    // Executar inserções em lote
+    let generatedCount = 0;
+    if (newExpenses.length > 0) {
+      try {
+        const { error: insertError } = await supabase
+          .from('expenses')
+          .insert(newExpenses);
+          
+        if (!insertError) {
+          generatedCount = newExpenses.length;
+          
+          // Atualizar próximas datas de geração em lote
+          const updatePromises = updatesData.map(update => 
+            supabase
+              .from('expenses')
+              .update({
+                next_generation_date: update.next_generation_date,
+                updated_at: update.updated_at
+              })
+              .eq('id', update.id)
+              .eq('tenant_id', userId)
+          );
+          
+          await Promise.allSettled(updatePromises);
+        }
+      } catch (err) {
+        // Em caso de erro, não gerar despesas
+        generatedCount = 0;
       }
     }
     
@@ -132,7 +148,6 @@ export async function checkAndGenerateFixedExpenses(userId: string): Promise<boo
     
     return true;
   } catch (error) {
-    console.error('Erro ao gerar despesas fixas:', error);
     return false;
   }
 }

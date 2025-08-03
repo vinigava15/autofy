@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Service, CatalogService, ServiceStatus, ClientSource, CompletionStatus, VehiclePhoto } from '../types';
 import { supabase } from '../lib/supabase';
+import { fetchCatalogServices as fetchCatalogServicesWithCache } from '../services/catalogService';
 import toast from 'react-hot-toast';
 import { 
   Calendar, 
@@ -109,21 +110,9 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
    */
   const fetchCatalogServices = async () => {
     try {
-      const { data, error } = await supabase
-        .from('catalog_services')
-        .select('*')
-        .eq('tenant_id', tenant_id)
-        .order('name');
-
-      if (error) {
-        console.error('Erro ao buscar serviços do catálogo:', error);
-        toast.error('Erro ao carregar os serviços do catálogo');
-        return;
-      }
-
-      setCatalogServices(data || []);
+      const catalogData = await fetchCatalogServicesWithCache(tenant_id);
+      setCatalogServices(catalogData);
     } catch (error) {
-      console.error('Erro ao buscar serviços do catálogo:', error);
       toast.error('Erro ao carregar os serviços do catálogo');
     }
   };
@@ -222,8 +211,8 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
       return;
     }
 
-    if (formData.car_plate.trim().length < 5) {
-      toast.error('A placa do carro deve ter pelo menos 5 caracteres');
+    if (formData.car_plate.trim().length < 5 || formData.car_plate.trim().length > 7) {
+      toast.error('A placa do carro deve ter entre 5 e 7 caracteres (ex: ABC1234)');
       setIsSubmitting(false);
       return;
     }
@@ -438,25 +427,55 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
   if (!isOpen) return null;
 
   return (
-    <div className={`fixed inset-0 z-50 ${isOpen ? 'flex' : 'hidden'} items-center justify-center`}>
-      {/* Overlay para efeito de foco */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
+    <>
+      {/* Estilos customizados para scrollbar - apenas desktop */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @media (min-width: 768px) {
+            .custom-scrollbar::-webkit-scrollbar {
+              width: 8px;
+            }
+            
+            .custom-scrollbar::-webkit-scrollbar-track {
+              background: #f1f5f9;
+              border-radius: 4px;
+            }
+            
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+              background: #3b82f6;
+              border-radius: 4px;
+              transition: background-color 0.2s;
+            }
+            
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: #2563eb;
+            }
+          }
+        `
+      }} />
       
-      {/* Conteúdo do formulário */}
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto relative z-10 m-4">
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-medium text-gray-900">
-            {service ? 'Editar Serviço' : 'Novo Serviço'}
-          </h2>
-          <button 
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-500 focus:outline-none"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      <div className={`fixed inset-0 z-50 ${isOpen ? 'flex' : 'hidden'} items-center justify-center`}>
+        {/* Overlay para efeito de foco */}
+        <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
         
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        {/* Conteúdo do formulário */}
+        <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] relative z-10 m-4 flex flex-col">
+          {/* Header fixo */}
+          <div className="p-4 border-b border-gray-200 flex justify-between items-center flex-shrink-0">
+            <h2 className="text-lg font-medium text-gray-900">
+              {service ? 'Editar Serviço' : 'Novo Serviço'}
+            </h2>
+            <button 
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-500 focus:outline-none"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          {/* Conteúdo com scroll customizado */}
+          <div className="overflow-y-auto custom-scrollbar flex-1">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Aviso sobre campos obrigatórios */}
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
             <p className="text-sm text-blue-800 flex items-center">
@@ -572,10 +591,20 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               <input
                 type="text"
                 required
+                maxLength={7}
+                placeholder="ABC1234"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={formData.car_plate}
-                onChange={(e) => setFormData({ ...formData, car_plate: e.target.value.toUpperCase() })}
+                onChange={(e) => {
+                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  if (value.length <= 7) {
+                    setFormData({ ...formData, car_plate: value });
+                  }
+                }}
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Máximo 7 caracteres (ex: ABC1234 ou ABC1D23)
+              </p>
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
@@ -850,8 +879,10 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
               )}
             </button>
           </div>
-        </form>
+            </form>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

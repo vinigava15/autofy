@@ -81,53 +81,63 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
         .order('service_date', { ascending: false });
         
       if (error) {
-        console.error('Erro ao buscar orçamentos:', error);
         toast.error('Erro ao carregar orçamentos');
         return;
       }
       
-      // Processar serviços para incluir detalhes do catálogo
-      const processedQuotations = await Promise.all(data.map(async (quotation) => {
-        let catalogService = null;
-        let catalogServices: any[] = [];
-        
-        // Buscar o serviço do catálogo correspondente, se existir
+      // Otimizar consultas do catálogo (evitar N+1)
+      const allServiceIds = new Set<string>();
+      const allSelectedServiceIds = new Set<string>();
+      
+      data.forEach(quotation => {
         if (quotation.service_id) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .eq('id', quotation.service_id)
-            .single();
-            
-          if (!catalogError && catalogData) {
-            catalogService = catalogData;
-          }
+          allServiceIds.add(quotation.service_id);
         }
+        if (quotation.selected_services && Array.isArray(quotation.selected_services)) {
+          quotation.selected_services.forEach((id: string) => allSelectedServiceIds.add(id));
+        }
+      });
+      
+      // Buscar todos os serviços do catálogo em lote
+      const allIds = new Set([...allServiceIds, ...allSelectedServiceIds]);
+      let catalogServicesMap = new Map();
+      
+      if (allIds.size > 0) {
+        const { data: catalogData } = await supabase
+          .from('catalog_services')
+          .select('id, name, value')
+          .eq('tenant_id', tenant_id)
+          .in('id', Array.from(allIds));
         
-        // Buscar todos os serviços do catálogo selecionados, se houver
-        if (quotation.selected_services && Array.isArray(quotation.selected_services) && quotation.selected_services.length > 0) {
-          const { data: catalogData, error: catalogError } = await supabase
-            .from('catalog_services')
-            .select('id, name, value')
-            .in('id', quotation.selected_services);
-            
-          if (!catalogError && catalogData) {
-            catalogServices = catalogData;
-          }
+        if (catalogData) {
+          catalogData.forEach(service => {
+            catalogServicesMap.set(service.id, service);
+          });
         }
+      }
+      
+      // Processar quotations com dados já carregados
+      const processedQuotations = data.map(quotation => {
+        const catalogService = quotation.service_id 
+          ? catalogServicesMap.get(quotation.service_id) 
+          : null;
+        
+        const catalogServices = quotation.selected_services 
+          ? quotation.selected_services.map((id: string) => catalogServicesMap.get(id)).filter(Boolean)
+          : [];
         
         return {
           ...quotation,
           service: catalogService,
           catalog_services: catalogServices
         };
-      }));
+      });
       
       setQuotations(processedQuotations);
       setFilteredQuotations(processedQuotations);
       setCurrentPage(1);
     } catch (error) {
-      console.error('Erro ao buscar orçamentos:', error);
+      // Erro tratado silenciosamente para melhor UX
       toast.error('Erro ao carregar orçamentos');
     } finally {
       setLoading(false);
@@ -155,7 +165,7 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
         .eq('tenant_id', tenant_id);
 
       if (error) {
-        console.error('Erro ao aprovar orçamento:', error);
+        // Erro tratado na interface
         toast.dismiss();
         toast.error('Erro ao aprovar orçamento');
         return;
@@ -165,7 +175,7 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
       toast.success('Orçamento aprovado e convertido em serviço!');
       fetchQuotations();
     } catch (error) {
-      console.error('Erro ao aprovar orçamento:', error);
+      // Erro tratado na interface
       toast.dismiss();
       toast.error('Erro ao aprovar orçamento');
     }
@@ -182,7 +192,7 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
         .eq('tenant_id', tenant_id);
 
       if (error) {
-        console.error('Erro ao excluir orçamento:', error);
+        // Erro tratado na interface
         toast.error('Erro ao excluir o orçamento');
         return;
       }
@@ -190,7 +200,7 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
       toast.success('Orçamento excluído com sucesso!');
       fetchQuotations();
     } catch (error) {
-      console.error('Erro ao excluir orçamento:', error);
+      // Erro tratado na interface
       toast.error('Erro ao excluir o orçamento');
     }
   };
@@ -218,7 +228,7 @@ export function QuotationsList({ isOpen, onClose, onEdit, tenant_id }: Quotation
       toast.dismiss();
       toast.success('Orçamento em PDF gerado com sucesso!');
     } catch (error) {
-      console.error('Erro ao gerar o PDF do orçamento:', error);
+      // Erro tratado na interface
       toast.dismiss();
       toast.error('Erro ao gerar o PDF. Tente novamente.');
     }

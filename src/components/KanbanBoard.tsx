@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { Droppable, Draggable } from 'react-beautiful-dnd';
+import DragDropProvider from './DragDropProvider';
 import { Service, CompletionStatus } from '../types';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -213,7 +214,7 @@ export function KanbanBoard({ services, onServiceSelect, onServicesUpdate }: Kan
     <div className="mt-8">
       <h2 className="text-lg font-medium text-gray-900 mb-4">Quadro de Serviços</h2>
       
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropProvider onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {columns.map(column => (
             <div key={column.id} className="flex flex-col rounded-lg border border-gray-200 shadow-sm">
@@ -327,7 +328,7 @@ export function KanbanBoard({ services, onServiceSelect, onServicesUpdate }: Kan
             </div>
           ))}
         </div>
-      </DragDropContext>
+      </DragDropProvider>
       
       {/* Mensagem informativa sobre limite de itens */}
       {services.length > (maxItemsPerColumn * 3) && (
