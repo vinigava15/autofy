@@ -19,6 +19,7 @@ import {
   Trash2,
   FileText
 } from 'lucide-react';
+import { PhotoViewButton } from '../PhotoViewButton';
 import { Service } from '../../types';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -237,40 +238,54 @@ export const MobileServiceList: React.FC<MobileServiceListProps> = ({
                       )}
 
                       {/* Ações */}
-                      <div className="flex space-x-2 pt-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onServiceEdit(service);
-                          }}
-                          className="flex-1 flex items-center justify-center space-x-2 py-2 px-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                          <span>Editar</span>
-                        </button>
+                      <div className="space-y-2 pt-2">
+                        {/* Primeira linha de ações */}
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onServiceEdit(service);
+                            }}
+                            className="flex-1 flex items-center justify-center space-x-2 py-2 px-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                          >
+                            <Edit className="w-4 h-4" />
+                            <span>Editar</span>
+                          </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onGenerateInvoice(service);
-                          }}
-                          className="flex-1 flex items-center justify-center space-x-2 py-2 px-3 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-                        >
-                          <FileText className="w-4 h-4" />
-                          <span>Nota</span>
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onGenerateInvoice(service);
+                            }}
+                            className="flex-1 flex items-center justify-center space-x-2 py-2 px-3 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+                          >
+                            <FileText className="w-4 h-4" />
+                            <span>Nota</span>
+                          </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm('Tem certeza que deseja excluir este serviço?')) {
-                              onServiceDelete(service.id);
-                            }
-                          }}
-                          className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('Tem certeza que deseja excluir este serviço?')) {
+                                onServiceDelete(service.id);
+                              }
+                            }}
+                            className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Segunda linha - Botão de fotos (apenas se houver fotos) */}
+                        <div className="flex justify-center">
+                          <PhotoViewButton
+                            serviceId={service.id}
+                            serviceName={service.client_name}
+                            variant="mobile"
+                            showText={true}
+                            className="px-4 py-2"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

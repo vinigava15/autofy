@@ -15,6 +15,7 @@ import {
   User,
   Edit
 } from 'lucide-react';
+import { PhotoViewButton } from '../PhotoViewButton';
 import { Service, CompletionStatus } from '../../types';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -199,12 +200,20 @@ export const MobileKanbanBoard: React.FC<MobileKanbanBoardProps> = ({
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => onServiceEdit(service)}
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center space-x-1">
+                    <PhotoViewButton
+                      serviceId={service.id}
+                      serviceName={service.client_name}
+                      variant="mobile"
+                      className="p-1.5"
+                    />
+                    <button
+                      onClick={() => onServiceEdit(service)}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Informações do serviço */}

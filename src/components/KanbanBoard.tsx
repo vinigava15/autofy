@@ -7,6 +7,7 @@ import { pt } from 'date-fns/locale';
 import { supabase } from '../lib/supabase';
 import { Car, Calendar, DollarSign, CheckCircle2, Clock9, Clock, AlertCircle, ShieldAlert, Image } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { PhotoViewButton } from './PhotoViewButton';
 
 interface KanbanBoardProps {
   services: Service[];
@@ -266,7 +267,13 @@ export function KanbanBoard({ services, onServiceSelect, onServicesUpdate }: Kan
                                   <h3 className="font-medium text-gray-900 text-sm">
                                     {service.client_name}
                                   </h3>
-                                  <div>
+                                  <div className="flex items-center space-x-1">
+                                    <PhotoViewButton
+                                      serviceId={service.id}
+                                      serviceName={service.client_name}
+                                      variant="desktop"
+                                      className="p-1"
+                                    />
                                     {renderStatusIcon(service.status)}
                                   </div>
                                 </div>

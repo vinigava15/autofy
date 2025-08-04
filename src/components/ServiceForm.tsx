@@ -398,18 +398,31 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
   };
 
   /**
-   * Associa fotos existentes ao serviço recém-criado
+   * Associa fotos temporárias ao serviço recém-criado
    */
   const associatePhotosToService = async (serviceId: string) => {
     try {
       for (const photo of photos) {
-        await supabase
-          .from('vehicle_photos')
-          .update({
-            service_id: serviceId
-          })
-          .eq('id', photo.id)
-          .eq('tenant_id', tenant_id);
+        // Se a foto tem um ID que não é UUID (fotos temporárias), inserir no banco
+        if (photo.id.length < 30) { // IDs temporários são menores que UUIDs
+          await supabase
+            .from('vehicle_photos')
+            .insert({
+              service_id: serviceId,
+              tenant_id: tenant_id,
+              url: photo.url,
+              description: photo.description || null
+            });
+        } else {
+          // Para fotos já existentes no banco, fazer update
+          await supabase
+            .from('vehicle_photos')
+            .update({
+              service_id: serviceId
+            })
+            .eq('id', photo.id)
+            .eq('tenant_id', tenant_id);
+        }
       }
     } catch (error) {
       console.error('Erro ao associar fotos ao serviço:', error);
@@ -833,23 +846,21 @@ export function ServiceForm({ service, onSuccess, onClose, isOpen, tenant_id }: 
           </div>
           
           {/* NOVO: Upload de Fotos do Veículo */}
-          {service?.id && (
-            <div>
-              {loadingPhotos ? (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                  <span className="ml-2 text-gray-600">Carregando fotos...</span>
-                </div>
-              ) : (
-                <PhotoUpload 
-                  serviceId={service.id} 
-                  tenantId={tenant_id} 
-                  existingPhotos={photos}
-                  onPhotosChange={handlePhotosChange}
-                />
-              )}
-            </div>
-          )}
+          <div>
+            {loadingPhotos ? (
+              <div className="flex items-center justify-center p-4">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                <span className="ml-2 text-gray-600">Carregando fotos...</span>
+              </div>
+            ) : (
+              <PhotoUpload 
+                serviceId={service?.id || 'temp'} 
+                tenantId={tenant_id} 
+                existingPhotos={photos}
+                onPhotosChange={handlePhotosChange}
+              />
+            )}
+          </div>
 
           {/* Botões de Ação */}
           <div className="flex justify-end space-x-3 border-t border-gray-200 pt-4 mt-6">

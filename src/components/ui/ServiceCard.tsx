@@ -2,6 +2,7 @@ import { Pencil, Trash2, FileText, DollarSign } from 'lucide-react';
 import { Service } from '../../types';
 import { StatusBadge } from './StatusBadge';
 import { formatLocalDate } from '../../utils/formatters';
+import { PhotoViewButton } from '../PhotoViewButton';
 
 interface ServiceCardProps {
   service: Service;
@@ -119,6 +120,13 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
             <Trash2 className="w-4 h-4 text-red-600 mr-2" />
             <span className="text-red-600">Excluir</span>
           </button>
+          <PhotoViewButton
+            serviceId={service.id}
+            serviceName={service.client_name}
+            variant="desktop"
+            showText={true}
+            className="p-3 flex items-center"
+          />
         </div>
       </div>
     </div>

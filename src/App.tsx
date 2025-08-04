@@ -19,6 +19,7 @@ import { CompletedServicesList } from './components/CompletedServicesList';
 import { ServiceCard } from './components/ui/ServiceCard';
 import { formatService } from './utils/serviceFormatters';
 import { MobileLayout } from './components/mobile/MobileLayout';
+import { PhotoViewButton } from './components/PhotoViewButton';
 
 const formatLocalDate = (dateString: string) => {
   // Garantir que a data seja tratada como meio-dia UTC para evitar problemas de fuso horárioooo
@@ -652,6 +653,12 @@ function App() {
                                       </button>
                                     )}
                                     <div className="flex space-x-2">
+                                      <PhotoViewButton
+                                        serviceId={service.id}
+                                        serviceName={service.client_name}
+                                        variant="desktop"
+                                        className="my-1"
+                                      />
                                       <button
                                         onClick={() => handleGenerateInvoice(service)}
                                         className="bg-blue-100 p-2 rounded-md hover:bg-blue-200 transition-colors touch-action-button my-1"

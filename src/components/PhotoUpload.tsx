@@ -44,7 +44,29 @@ export function PhotoUpload({ serviceId, tenantId, existingPhotos = [], onPhotos
         throw new Error('Não foi possível obter a URL pública da imagem');
       }
       
-      // 3. Salvar a referência no banco de dados
+      // 3. Para serviços temporários (durante criação), apenas armazenar localmente
+      if (serviceId === 'temp') {
+        const tempPhoto: VehiclePhoto = {
+          id: fileName, // Usar o nome do arquivo como ID temporário
+          url: publicUrl.publicUrl,
+          description: photoDescription,
+          created_at: new Date().toISOString()
+        };
+        
+        const updatedPhotos = [...photos, tempPhoto];
+        setPhotos(updatedPhotos);
+        setPhotoDescription('');
+        
+        // 4. Notificar o componente pai
+        if (onPhotosChange) {
+          onPhotosChange(updatedPhotos);
+        }
+        
+        toast.success('Foto adicionada com sucesso!');
+        return;
+      }
+      
+      // 3. Para serviços existentes, salvar a referência no banco de dados
       const { data: photoData, error: dbError } = await supabase
         .from('vehicle_photos')
         .insert({
@@ -111,7 +133,36 @@ export function PhotoUpload({ serviceId, tenantId, existingPhotos = [], onPhotos
   // Handler para remover uma foto
   const handleRemovePhoto = async (photoId: string) => {
     try {
-      // 1. Remover do banco de dados
+      // Para fotos temporárias, apenas remover localmente
+      if (serviceId === 'temp' || photoId.length < 30) {
+        // Remover do storage se possível
+        const photo = photos.find(p => p.id === photoId);
+        if (photo && photo.url) {
+          try {
+            // Construir o caminho do arquivo
+            const filePath = `${tenantId}/${serviceId}/${photoId}`;
+            await supabase.storage
+              .from('vehicle-photos')
+              .remove([filePath]);
+          } catch (storageError) {
+            console.warn('Erro ao remover arquivo do storage:', storageError);
+          }
+        }
+        
+        // Atualizar a lista local
+        const updatedPhotos = photos.filter(photo => photo.id !== photoId);
+        setPhotos(updatedPhotos);
+        
+        // Notificar o componente pai
+        if (onPhotosChange) {
+          onPhotosChange(updatedPhotos);
+        }
+        
+        toast.success('Foto removida com sucesso!');
+        return;
+      }
+      
+      // 1. Para fotos existentes, remover do banco de dados
       const { error } = await supabase
         .from('vehicle_photos')
         .delete()
@@ -147,7 +198,14 @@ export function PhotoUpload({ serviceId, tenantId, existingPhotos = [], onPhotos
       
       <div className="mb-4 bg-blue-50 text-blue-700 p-3 rounded-md text-sm flex items-start">
         <Info className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
-        <p>Adicione fotos do veículo para documentar eventuais danos pré-existentes.</p>
+        <div>
+          <p>Adicione fotos do veículo para documentar eventuais danos pré-existentes.</p>
+          {serviceId === 'temp' && (
+            <p className="mt-1 text-blue-600 font-medium">
+              ⚠️ As fotos serão associadas ao serviço quando você clicar em "Salvar".
+            </p>
+          )}
+        </div>
       </div>
       
       {/* Descrição da foto a ser enviada */}

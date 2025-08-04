@@ -114,7 +114,11 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
                 <h3 className="text-base font-medium truncate">
                   {action.title}
                 </h3>
-                <p className="text-sm text-gray-500 truncate">
+                <p className={`text-sm truncate ${
+                  action.variant === 'primary' 
+                    ? 'text-white text-opacity-80' 
+                    : 'text-gray-500'
+                }`}>
                   {action.description}
                 </p>
               </div>
